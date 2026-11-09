@@ -1,0 +1,15 @@
+{{ define "instance_no_image" }}
+
+{{ template "e2e_test_firewall" . }}
+
+{{ $resource_name := "foobar" }}
+
+resource "linode_instance" "{{ $resource_name }}" {
+    label  = "{{ .Label }}"
+    type   = "g6-nanode-1"
+    region = "{{ .Region }}"
+    booted = false
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

@@ -1,0 +1,26 @@
+{{ define "nb_configs_data_base" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_nodebalancer" "foobar" {
+    label = "{{.Label}}"
+    region = "{{ .Region }}"
+    client_conn_throttle = 20
+    tags = ["tf_test"]
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+resource "linode_nodebalancer_config" "foo" {
+    nodebalancer_id = "${linode_nodebalancer.foobar.id}"
+    port = 8080
+    protocol = "http"
+    check = "http"
+    check_passive = true
+    check_path = "/"
+}
+
+resource "linode_nodebalancer_config" "bar" {
+    nodebalancer_id = "${linode_nodebalancer.foobar.id}"
+}
+
+{{ end }}

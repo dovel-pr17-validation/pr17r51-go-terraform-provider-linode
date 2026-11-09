@@ -1,0 +1,25 @@
+{{ define "instance_disk_multiple" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "diska"
+        image = "{{.Image}}"
+        root_pass = "{{ .RootPass }}"
+        authorized_keys = ["{{.PubKey}}"]
+        size = 3000
+    }
+    disk {
+        label = "diskb"
+        filesystem = "swap"
+        size = 512
+    }
+
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

@@ -1,0 +1,92 @@
+---
+page_title: "Linode: linode_firewall"
+description: |-
+  Provides details about a Firewall.
+---
+
+# Data Source: linode\_firewall
+
+Provides details about a Linode Firewall.
+For more information, see the [Linode APIv4 docs](https://techdocs.akamai.com/linode-api/reference/get-firewall).
+
+## Example Usage
+
+```terraform
+data "linode_firewall" "my-firewall" {
+    id = 123
+}
+```
+
+## Argument Reference
+
+The following arguments are supported:
+
+* `id` - (Required) The Firewall's ID.
+
+## Attributes Reference
+
+In addition to all arguments above, the following attributes are exported:
+
+**NOTE:** Nested fields are tagged as either **Block** (declared as `field { ... }`) or **Nested Attribute** (declared as `field = { ... }`). See the [Blocks vs. Nested Attributes](../guides/blocks_vs_nested_attributes.md) guide for details.
+
+* `label` - The label for the firewall.
+
+* `tags` - The tags applied to the firewall. Tags are case-insensitive and are for organizational purposes only.
+
+* `disabled` - If true, the firewall is inactive.
+
+* [`inbound`](#inbound-and-outbound) - (Read-Only Object List) A firewall rule that specifies what inbound network traffic is allowed. Referenced with an index (e.g. `inbound.0.action`).
+
+* `inbound_policy` - The default behavior for inbound traffic. (`ACCEPT`, `DROP`)
+
+* [`outbound`](#inbound-and-outbound) - (Read-Only Object List) A firewall rule that specifies what outbound network traffic is allowed. Referenced with an index (e.g. `outbound.0.action`).
+
+* `outbound_policy` - The default behavior for outbound traffic. (`ACCEPT`, `DROP`)
+
+* `linodes` - The IDs of Linodes assigned to this Firewall.
+
+* `nodebalancers` - The IDs of NodeBalancers assigned to this Firewall.
+
+* `interfaces` - The IDs of Linode interfaces assigned to this Firewall.
+
+* `status` - The status of the firewall. (`enabled`, `disabled`, `deleted`)
+
+* `version` - The current version of the Firewall rules.
+
+* `fingerprint` - The fingerprint of the current Firewall rules.
+
+* `created` - When this firewall was created.
+
+* `updated` - When this firewall was last updated.
+
+* [`devices`](#devices) - (Read-Only Object List) The devices governed by the Firewall. Referenced with an index (e.g. `devices.0.id`).
+
+### inbound and outbound
+
+The following arguments are supported in the inbound and outbound rule blocks:
+
+* `label` - Used to identify this rule. For display purposes only.
+
+* `action` - Controls whether traffic is accepted or dropped by this rule. Overrides the Firewall’s inbound_policy if this is an inbound rule, or the outbound_policy if this is an outbound rule.
+
+* `protocol` - The network protocol this rule controls. Possible values include `ALL`, `TCP`, `UDP`, `ICMP`, `IPENCAP`, or a protocol number from `0` to `255`.
+
+* `ports` - A string representation of ports and/or port ranges (i.e. "443" or "80-90, 91").
+
+* `ipv4` - A list of IPv4 addresses or networks. Must be in IP/mask format.
+
+* `ipv6` - A list of IPv6 addresses or networks. Must be in IP/mask format.
+
+### devices
+
+The following attributes are available on devices:
+
+* `id` - The ID of the Firewall Device.
+
+* `entity_id` - The ID of the underlying entity this device references (i.e. the Linode's ID).
+
+* `type` - The type of Firewall Device.
+
+* `label` - The label of the underlying entity this device references.
+
+* `url` The URL of the underlying entity this device references.

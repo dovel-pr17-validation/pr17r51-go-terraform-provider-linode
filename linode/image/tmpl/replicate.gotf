@@ -1,0 +1,13 @@
+{{ define "image_replicate" }}
+
+resource "linode_image" "foobar" {
+    label = "{{.Image}}"
+    file_path = "{{.FilePath}}"
+    file_hash = filemd5("{{.FilePath}}")
+    region = "{{ .Region }}"
+    description = "really descriptive text"
+    replica_regions = ["{{ .Region }}", "{{ .ReplicaRegion }}"]
+    wait_for_replications = true
+}
+
+{{ end }}

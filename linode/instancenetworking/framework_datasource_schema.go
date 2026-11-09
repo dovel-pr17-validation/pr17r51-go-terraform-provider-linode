@@ -1,0 +1,121 @@
+package instancenetworking
+
+import (
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+var VPCNAT1To1Type = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"address":   types.StringType,
+		"vpc_id":    types.Int64Type,
+		"subnet_id": types.Int64Type,
+	},
+}
+
+var AssignedEntityObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"id":    types.Int64Type,
+		"label": types.StringType,
+		"type":  types.StringType,
+		"url":   types.StringType,
+	},
+}
+
+var networkObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"address":         types.StringType,
+		"gateway":         types.StringType,
+		"prefix":          types.Int64Type,
+		"rdns":            types.StringType,
+		"region":          types.StringType,
+		"subnet_mask":     types.StringType,
+		"type":            types.StringType,
+		"public":          types.BoolType,
+		"linode_id":       types.Int64Type,
+		"interface_id":    types.Int64Type,
+		"vpc_nat_1_1":     VPCNAT1To1Type,
+		"reserved":        types.BoolType,
+		"tags":            types.SetType{ElemType: types.StringType},
+		"assigned_entity": AssignedEntityObjectType,
+	},
+}
+
+var vpcIPv6AddressObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"slaac_address": types.StringType,
+	},
+}
+
+var vpcNetworkObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"address":        types.StringType,
+		"address_range":  types.StringType,
+		"active":         types.BoolType,
+		"vpc_id":         types.Int64Type,
+		"subnet_id":      types.Int64Type,
+		"config_id":      types.Int64Type,
+		"interface_id":   types.Int64Type,
+		"gateway":        types.StringType,
+		"prefix":         types.Int64Type,
+		"region":         types.StringType,
+		"subnet_mask":    types.StringType,
+		"linode_id":      types.Int64Type,
+		"nat_1_1":        types.StringType,
+		"ipv6_range":     types.StringType,
+		"ipv6_is_public": types.BoolType,
+		"ipv6_addresses": types.ListType{ElemType: vpcIPv6AddressObjectType},
+	},
+}
+
+var ipv4ObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"private":  types.ListType{ElemType: networkObjectType},
+		"public":   types.ListType{ElemType: networkObjectType},
+		"reserved": types.ListType{ElemType: networkObjectType},
+		"shared":   types.ListType{ElemType: networkObjectType},
+		"vpc":      types.ListType{ElemType: vpcNetworkObjectType},
+	},
+}
+
+var globalObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"prefix":       types.Int64Type,
+		"range":        types.StringType,
+		"region":       types.StringType,
+		"route_target": types.StringType,
+	},
+}
+
+var ipv6ObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"global":     types.ListType{ElemType: globalObjectType},
+		"link_local": types.ObjectType{AttrTypes: networkObjectType.AttrTypes},
+		"slaac":      types.ObjectType{AttrTypes: networkObjectType.AttrTypes},
+		"vpc":        types.ListType{ElemType: vpcNetworkObjectType},
+	},
+}
+
+var frameworkDatasourceSchema = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"linode_id": schema.Int64Attribute{
+			Description: "The ID of the Linode for network info.",
+			Required:    true,
+		},
+		"ipv4": schema.ListAttribute{
+			Description: "Information about this Linode's IPv4 addresses.",
+			Computed:    true,
+			ElementType: ipv4ObjectType,
+		},
+		"ipv6": schema.ListAttribute{
+			Description: "Information about this Linode's IPv6 addresses.",
+			Computed:    true,
+			ElementType: ipv6ObjectType,
+		},
+		"id": schema.StringAttribute{
+			Description: "Unique identifier for this DataSource.",
+			Computed:    true,
+		},
+	},
+}

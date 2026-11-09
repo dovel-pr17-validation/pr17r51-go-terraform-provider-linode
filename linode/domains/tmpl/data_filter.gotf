@@ -1,0 +1,15 @@
+{{ define "domains_data_filter" }}
+
+{{ template "domains_data_base" . }}
+
+data "linode_domains" "foo" {
+    filter {
+        name = "description"
+        values = ["tf-testing-"]
+        match_by = "substring"
+    }
+    order_by = "domain"
+    order = "desc"
+}
+
+{{ end }}

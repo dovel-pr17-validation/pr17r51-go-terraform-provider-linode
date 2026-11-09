@@ -1,0 +1,24 @@
+{{ define "instance_disk_boot_image" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "boot"
+        size = 5000
+        filesystem = "ext4"
+        image = "{{.Image}}"
+        root_pass = "{{ .RootPass }}"
+    }
+    disk {
+        label = "swap"
+        size = 512
+        filesystem = "ext4"
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

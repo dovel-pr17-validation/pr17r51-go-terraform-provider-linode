@@ -1,0 +1,13 @@
+{{ define "object_bucket_data_basic" }}
+
+resource "linode_object_storage_bucket" "foobar" {
+    region = "{{.Region}}"
+    label = "{{.Label}}"
+}
+
+data "linode_object_storage_bucket" "foobar" {
+    region = linode_object_storage_bucket.foobar.region
+    label = linode_object_storage_bucket.foobar.label
+}
+
+{{ end }}

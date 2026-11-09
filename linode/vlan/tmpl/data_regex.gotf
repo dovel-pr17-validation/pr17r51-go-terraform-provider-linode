@@ -1,0 +1,45 @@
+{{ define "vlan_data_regex" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "fooinst" {
+    label = "{{.InstLabel}}"
+    type = "g6-nanode-1"
+    image = "linode/debian12"
+    region = "{{ .Region }}"
+    root_pass = "{{ .RootPass }}"
+
+    interface {
+        label = "{{.VLANLabel}}"
+        purpose = "vlan"
+        ipam_address = "10.0.0.1/24"
+    }
+
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+data "linode_vlans" "foolan" {
+    order_by = "region"
+    order = "desc"
+
+    filter {
+        name = "label"
+
+        # Arbitrary regex
+        values = [format("%s.*", substr("{{.VLANLabel}}", 0, 5))]
+        match_by = "regex"
+    }
+
+    filter {
+        name = "region"
+        values = ["{{ .Region }}"]
+        match_by = "regex"
+    }
+
+    filter {
+        name = "linodes"
+        values = [linode_instance.fooinst.id]
+    }
+}
+
+{{ end }}

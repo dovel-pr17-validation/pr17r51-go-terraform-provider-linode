@@ -1,0 +1,48 @@
+{{ define "instance_disk_stackscript" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_stackscript" "foo-script" {
+    label = "foo-label"
+    description = "Installs a Package"
+
+    script = <<EOF
+#!/bin/ash
+# <UDF name="hello" label="Hiya" example="example" default="">
+echo "hello this is a stack script"
+	EOF
+    images = ["{{.Image}}"]
+    rev_note = "hello version"
+}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+
+    disk {
+        label = "disk"
+        image = "{{.Image}}"
+        root_pass = "{{ .RootPass }}"
+        authorized_keys = ["{{.PubKey}}"]
+        size = 3000
+        stackscript_id = "${linode_stackscript.foo-script.id}"
+        stackscript_data = {
+            "hello" = "world"
+        }
+    }
+
+    config {
+        label = "config"
+        kernel = "linode/latest-64bit"
+        devices {
+            sda {
+                disk_label = "disk"
+            }
+        }
+    }
+
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

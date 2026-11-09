@@ -1,0 +1,422 @@
+package lke
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+var resourceSchema = map[string]*schema.Schema{
+	"label": {
+		Type:        schema.TypeString,
+		Required:    true,
+		Description: "The unique label for the cluster.",
+	},
+	"k8s_version": {
+		Type:     schema.TypeString,
+		Required: true,
+		Description: "The desired Kubernetes version for this Kubernetes cluster in the format of <major>.<minor>. " +
+			"The latest supported patch version will be deployed.",
+	},
+	"apl_enabled": {
+		Type: schema.TypeBool,
+		Description: "Enables the App Platform Layer for this cluster. " +
+			"Note: v4beta only and may not currently be available to all users.",
+		Optional: true,
+		Computed: true,
+		ForceNew: true,
+	},
+	"tags": {
+		Type:        schema.TypeSet,
+		Elem:        &schema.Schema{Type: schema.TypeString},
+		Optional:    true,
+		Computed:    true,
+		Description: "An array of tags applied to this object. Tags are for organizational purposes only.",
+	},
+	"external_pool_tags": {
+		Type:        schema.TypeSet,
+		Elem:        &schema.Schema{Type: schema.TypeString},
+		Optional:    true,
+		Description: "An array of tags indicating that node pools having those tags are defined with a separate nodepool resource, rather than inside the current cluster resource.",
+	},
+	"region": {
+		Type:        schema.TypeString,
+		Required:    true,
+		ForceNew:    true,
+		Description: "This cluster's location.",
+	},
+	"api_endpoints": {
+		Type:        schema.TypeList,
+		Elem:        &schema.Schema{Type: schema.TypeString},
+		Computed:    true,
+		Description: "The API endpoints for the cluster.",
+	},
+	"kubeconfig": {
+		Type:        schema.TypeString,
+		Computed:    true,
+		Sensitive:   true,
+		Description: "The Base64-encoded Kubeconfig for the cluster.",
+	},
+	"status": {
+		Type:        schema.TypeString,
+		Computed:    true,
+		Description: "The status of the cluster.",
+	},
+	"tier": {
+		Type:        schema.TypeString,
+		Optional:    true,
+		Computed:    true,
+		ForceNew:    true,
+		Description: "The desired Kubernetes tier.",
+	},
+	"subnet_id": {
+		Type:        schema.TypeInt,
+		Optional:    true,
+		Computed:    true,
+		Description: "The ID of the VPC subnet to use for the Kubernetes cluster. This subnet must be dual stack (IPv4 and IPv6 should both be enabled). ",
+	},
+	"vpc_id": {
+		Type:        schema.TypeInt,
+		Optional:    true,
+		Computed:    true,
+		Description: "The ID of the VPC to use for the Kubernetes cluster. When set without `subnet_id`, the VPC's IPv4 ranges must include `10.0.0.0/8`, because the workload subnet is allocated from that range.",
+	},
+	"stack_type": {
+		Type:        schema.TypeString,
+		Optional:    true,
+		Computed:    true,
+		Description: "The networking stack type of the Kubernetes cluster.",
+		ValidateDiagFunc: validation.ToDiagFunc(
+			validation.StringInSlice([]string{
+				string(linodego.LKEClusterStackIPv4),
+				string(linodego.LKEClusterDualStack),
+			}, false),
+		),
+	},
+	"networking": {
+		Type:     schema.TypeList,
+		MaxItems: 1,
+		Optional: true,
+		Computed: true,
+		ForceNew: true,
+		Description: "The pod network routing mode and network configuration of an LKE Enterprise cluster. " +
+			"Note: v4beta only and may not currently be available to all users.",
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"routing_mode": {
+					Type:        schema.TypeString,
+					Description: "The pod network routing mode. Defaults to `native`.",
+					Optional:    true,
+					Computed:    true,
+					ForceNew:    true,
+					ValidateDiagFunc: validation.ToDiagFunc(
+						validation.StringInSlice([]string{
+							string(linodego.LKEClusterRoutingModeNative),
+							string(linodego.LKEClusterRoutingModeVXLAN),
+						}, false),
+					),
+				},
+				"cluster_cidr_ipv4": {
+					Type:        schema.TypeString,
+					Description: "The IPv4 pod network CIDR. Only configurable when `routing_mode` is `vxlan`.",
+					Optional:    true,
+					Computed:    true,
+					ForceNew:    true,
+				},
+				"node_cidr_mask_size_ipv4": {
+					Type:        schema.TypeInt,
+					Description: "The IPv4 pod CIDR prefix length assigned to each node. Only configurable when `routing_mode` is `vxlan`.",
+					Optional:    true,
+					Computed:    true,
+					ForceNew:    true,
+				},
+				"service_cluster_ip_range_ipv4": {
+					Type:        schema.TypeString,
+					Description: "The IPv4 service CIDR. Only configurable when `routing_mode` is `vxlan`.",
+					Optional:    true,
+					Computed:    true,
+					ForceNew:    true,
+				},
+				"max_pods": {
+					Type:        schema.TypeInt,
+					Description: "The maximum number of pods per node. Only configurable when `routing_mode` is `vxlan`.",
+					Optional:    true,
+					Computed:    true,
+					ForceNew:    true,
+				},
+				"nodebalancer_backend_prefix_length": {
+					Type: schema.TypeInt,
+					Description: "The prefix length reserved from the highest portion of the VPC subnet for NodeBalancer backends. " +
+						"Only configurable when `routing_mode` is `vxlan`.",
+					Optional: true,
+					Computed: true,
+					ForceNew: true,
+				},
+				"cluster_cidr_ipv6": {
+					Type:        schema.TypeString,
+					Description: "The system-assigned IPv6 pod network CIDR.",
+					Computed:    true,
+				},
+				"node_cidr_mask_size_ipv6": {
+					Type:        schema.TypeInt,
+					Description: "The IPv6 pod CIDR prefix length assigned to each node.",
+					Computed:    true,
+				},
+				"service_cluster_ip_range_ipv6": {
+					Type:        schema.TypeString,
+					Description: "The system-assigned IPv6 service CIDR.",
+					Computed:    true,
+				},
+			},
+		},
+	},
+	"pool": {
+		Type: schema.TypeList,
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"id": {
+					Type:        schema.TypeInt,
+					Computed:    true,
+					Description: "The ID of the Node Pool.",
+				},
+				"label": {
+					Type:        schema.TypeString,
+					Description: "The label of the Node Pool.",
+					Optional:    true,
+					Default:     "",
+				},
+				"count": {
+					Type:        schema.TypeInt,
+					Description: "The number of nodes in the Node Pool.",
+					Optional:    true,
+					Computed:    true,
+				},
+				"type": {
+					Type:        schema.TypeString,
+					Description: "A Linode Type for all of the nodes in the Node Pool.",
+					Required:    true,
+				},
+				"firewall_id": {
+					Type:        schema.TypeInt,
+					Description: "The ID of the Firewall to attach to nodes in this node pool.",
+					Optional:    true,
+					Computed:    true,
+				},
+				"labels": {
+					Type: schema.TypeMap,
+					Elem: &schema.Schema{
+						Type: schema.TypeString,
+					},
+					Description: "Key-value pairs added as labels to nodes in the node pool. " +
+						"Labels help classify your nodes and to easily select subsets of objects.",
+					Optional: true,
+				},
+				"taint": {
+					Type: schema.TypeSet,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"effect": {
+								Type:        schema.TypeString,
+								Description: "The Kubernetes taint effect.",
+								Required:    true,
+								ValidateDiagFunc: validation.ToDiagFunc(
+									validation.StringInSlice([]string{
+										string(linodego.LKENodePoolTaintEffectNoExecute),
+										string(linodego.LKENodePoolTaintEffectNoSchedule),
+										string(linodego.LKENodePoolTaintEffectPreferNoSchedule),
+									}, false),
+								),
+							},
+							"key": {
+								Description: "The Kubernetes taint key.",
+								Type:        schema.TypeString,
+								Required:    true,
+								ValidateDiagFunc: validation.ToDiagFunc(
+									validation.StringIsNotEmpty,
+								),
+							},
+							"value": {
+								Description: "The Kubernetes taint value.",
+								Type:        schema.TypeString,
+								Required:    true,
+								ValidateDiagFunc: validation.ToDiagFunc(
+									validation.StringIsNotEmpty,
+								),
+							},
+						},
+					},
+					Description: "Kubernetes taints to add to node pool nodes. Taints help control how " +
+						"pods are scheduled onto nodes, specifically allowing them to repel certain pods.",
+					Optional: true,
+				},
+				"tags": {
+					Type:        schema.TypeSet,
+					Description: "A set of tags applied to this node pool.",
+
+					Elem:                  &schema.Schema{Type: schema.TypeString},
+					Optional:              true,
+					DiffSuppressOnRefresh: true,
+					DiffSuppressFunc: func(k, oldValue, newValue string, d *schema.ResourceData) bool {
+						setAttrName := k[0:strings.LastIndex(k, ".")]
+
+						index, err := strconv.Atoi(k[strings.LastIndex(k, "."):])
+						if err != nil {
+							return false
+						}
+
+						tags := helper.ExpandStringSet(d.Get(setAttrName).(*schema.Set))
+						for i, item := range tags {
+							if i == index {
+								continue
+							}
+							if strings.EqualFold(item, oldValue) || strings.EqualFold(item, newValue) {
+								return true
+							}
+						}
+						return false
+					},
+				},
+				"disk_encryption": {
+					Type:         schema.TypeString,
+					Description:  "The disk encryption policy for the nodes in this pool.",
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: validation.StringInSlice([]string{"enabled", "disabled"}, false),
+				},
+				"nodes": {
+					Type: schema.TypeList,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"id": {
+								Type:        schema.TypeString,
+								Description: "The ID of the node.",
+								Computed:    true,
+							},
+							"instance_id": {
+								Type:        schema.TypeInt,
+								Description: "The ID of the underlying Linode instance.",
+								Computed:    true,
+							},
+							"status": {
+								Type:        schema.TypeString,
+								Description: `The status of the node.`,
+								Computed:    true,
+							},
+						},
+					},
+					Computed:    true,
+					Description: "The nodes in the node pool.",
+				},
+				"autoscaler": {
+					Type:     schema.TypeList,
+					MaxItems: 1,
+					Optional: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"min": {
+								Type:        schema.TypeInt,
+								Description: "The minimum number of nodes to autoscale to.",
+								Required:    true,
+							},
+							"max": {
+								Type:        schema.TypeInt,
+								Description: "The maximum number of nodes to autoscale to.",
+								Required:    true,
+							},
+						},
+					},
+					Description: "When specified, the number of nodes autoscales within " +
+						"the defined minimum and maximum values.",
+				},
+				"k8s_version": {
+					Type: schema.TypeString,
+					Description: "The desired Kubernetes version for this pool. " +
+						"This is only available for Enterprise clusters.",
+					Computed: true,
+					Optional: true,
+				},
+				"update_strategy": {
+					Type: schema.TypeString,
+					Description: "The strategy for updating the node pool k8s version. " +
+						"For LKE enterprise only and may not currently available to all users.",
+					Computed: true,
+					Optional: true,
+					ValidateFunc: validation.StringInSlice([]string{
+						string(linodego.LKENodePoolOnRecycle),
+						string(linodego.LKENodePoolRollingUpdate),
+					}, false),
+				},
+			},
+		},
+		Optional:    true,
+		Description: "A node pool in the cluster. At least one pool is required for standard tier clusters.",
+	},
+	"control_plane": {
+		Type:        schema.TypeList,
+		MaxItems:    1,
+		Optional:    true,
+		Computed:    true,
+		Description: "Defines settings for the Kubernetes Control Plane.",
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"high_availability": {
+					Type:        schema.TypeBool,
+					Description: "Defines whether High Availability is enabled for the Control Plane Components of the cluster.",
+					Optional:    true,
+					Computed:    true,
+				},
+				"audit_logs_enabled": {
+					Type:        schema.TypeBool,
+					Description: "Enables audit logs on the cluster's control plane.",
+					Optional:    true,
+					Computed:    true,
+				},
+				"acl": {
+					Type:        schema.TypeList,
+					Description: "Defines the ACL configuration for an LKE cluster's control plane.",
+					Optional:    true,
+					Computed:    true,
+					MaxItems:    1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"enabled": {
+								Type:        schema.TypeBool,
+								Description: "Defines default policy. A value of true results in a default policy of DENY. A value of false results in default policy of ALLOW, and has the same effect as delete the ACL configuration.",
+								Computed:    true,
+								Optional:    true,
+							},
+							"addresses": {
+								Type:        schema.TypeList,
+								Description: "A list of ip addresses to allow.",
+								Optional:    true,
+								Computed:    true,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"ipv4": {
+											Type:        schema.TypeSet,
+											Description: "A set of individual ipv4 addresses or CIDRs to ALLOW.",
+											Optional:    true,
+											Computed:    true,
+											Elem:        &schema.Schema{Type: schema.TypeString},
+										},
+										"ipv6": {
+											Type:        schema.TypeSet,
+											Description: "A set of individual ipv6 addresses or CIDRs to ALLOW.",
+											Optional:    true,
+											Computed:    true,
+											Elem:        &schema.Schema{Type: schema.TypeString},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+}

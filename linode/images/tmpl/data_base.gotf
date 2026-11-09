@@ -1,0 +1,31 @@
+{{ define "images_data_base" }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Image}}"
+
+    type = "g6-standard-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "disk"
+        size = 1000
+        filesystem = "ext4"
+    }
+    booted = false
+}
+resource "linode_image" "foobar" {
+    linode_id = "${linode_instance.foobar.id}"
+    disk_id = "${linode_instance.foobar.disk.0.id}"
+    label = "{{.Image}}"
+    description = "descriptive text"
+    tags = ["test"]
+}
+
+resource "linode_image" "foobar2" {
+    linode_id = "${linode_instance.foobar.id}"
+    disk_id = "${linode_instance.foobar.disk.0.id}"
+    label = "{{.Image}}"
+    description = "descriptive text"
+    tags = ["test", "gen2"]
+}
+
+{{ end }}

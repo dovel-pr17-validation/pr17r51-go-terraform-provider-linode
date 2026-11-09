@@ -1,0 +1,1062 @@
+package tmpl
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+)
+
+type TemplateData struct {
+	Label    string
+	PubKey   string
+	Type     string
+	Image    string
+	Tag      string
+	Region   string
+	RootPass string
+
+	SwapSize int
+
+	StackScriptName string
+
+	Booted     bool
+	ResizeDisk bool
+
+	PlacementGroups []string
+	AssignedGroup   string
+
+	DiskEncryption *linodego.InstanceDiskEncryption
+
+	Kernel   string
+	BootSize int
+
+	InterfaceGeneration linodego.InterfaceGeneration
+	NetworkHelper       *bool
+	MaintenancePolicy   string
+	LockType            string
+
+	SystemAlert int
+	IPv4Address string
+}
+
+func Basic(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_basic", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func VPU(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_vpu", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func Updates(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_updates", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func WatchdogDisabled(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_watchdog_disabled", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func WithType(t testing.TB, label, pubKey, typ, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_type", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Type:     typ,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func WithSwapSize(t testing.TB, label, pubKey, region string, swapSize int, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_swap_size", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			SwapSize: swapSize,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func FullDisk(t testing.TB, label, pubKey, stackScriptName, region string, swapSize int, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_full_disk", TemplateData{
+			Label:           label,
+			PubKey:          pubKey,
+			SwapSize:        swapSize,
+			StackScriptName: stackScriptName,
+			Image:           acceptance.TestImageLatest,
+			Region:          region,
+			RootPass:        rootPass,
+		})
+}
+
+func WithConfig(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_config", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func WithAlerts(t testing.TB, label, region string, systemAlert int) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_alerts", TemplateData{
+			Label:       label,
+			Image:       acceptance.TestImageLatest,
+			Region:      region,
+			SystemAlert: systemAlert,
+		})
+}
+
+func AlertsUpdates(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_alerts_updates", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func MultipleConfigs(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_multiple_configs", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func MaintenancePolicy(t testing.TB, label, pubKey, region, rootPass, maintenancePolicy string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_maintenance_policy", TemplateData{
+			Label:             label,
+			PubKey:            pubKey,
+			Image:             acceptance.TestImageLatest,
+			Region:            region,
+			RootPass:          rootPass,
+			MaintenancePolicy: maintenancePolicy,
+		})
+}
+
+func Interfaces(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_interfaces", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func InterfacesUpdate(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_interfaces_update", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func InterfacesUpdateEmpty(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_interfaces_update_empty", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ExplicitInterfaceGeneration(
+	t testing.TB,
+	label,
+	region string,
+	booted bool,
+	generation linodego.InterfaceGeneration,
+	networkHelper *bool,
+	rootPass string,
+) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_explicit_interface_generation", TemplateData{
+			Label:               label,
+			Image:               acceptance.TestImageLatest,
+			Region:              region,
+			InterfaceGeneration: generation,
+			NetworkHelper:       networkHelper,
+			Booted:              booted,
+			RootPass:            rootPass,
+		})
+}
+
+func ConfigInterfaces(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ConfigInterfacesMultiple(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces_multiple", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ConfigInterfacesUpdate(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces_update", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ConfigInterfacesUpdateNoReboot(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces_update_no_reboot", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ConfigInterfacesUpdateEmpty(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces_update_empty", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ConfigUpdates(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_updates", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func ConfigsAllUpdated(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_configs_all_updated", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func RawDisk(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_raw_disk", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func RawDiskDeleted(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_raw_disk_deleted", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func Tag(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_tag", TemplateData{
+			Label:  label,
+			Region: region,
+			Image:  acceptance.TestImageLatest,
+		})
+}
+
+func TagUpdate(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_tag_update", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func TagUpdateCaseChange(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_tag_update_case_change", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func TagVolume(t testing.TB, label, tag, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_tag_volume", TemplateData{
+			Label:  label,
+			Tag:    tag,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func RawDiskExpanded(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_raw_disk_expanded", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func Disk(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskMultiple(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_multiple", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfig(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigExpanded(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_expanded", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigResized(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_resized", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigResizedExpanded(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_resized_expanded", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigReordered(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_reordered", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigMultiple(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_multiple", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigDevicesExt(t testing.TB, label, instanceType, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_devices_ext", TemplateData{
+			Label:    label,
+			Type:     instanceType,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskConfigDeviceBlockExt(t testing.TB, label, instanceType, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_config_device_block_ext", TemplateData{
+			Label:    label,
+			Type:     instanceType,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskBootImage(t testing.TB, label, image, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_boot_image", TemplateData{
+			Label:    label,
+			Image:    image,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func VolumeConfig(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_volume_config", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func PrivateImage(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_private_image", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func NoImage(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_no_image", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func PrivateNetworking(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_private_networking", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func AuthorizedUsers(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_authorized_users", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func AuthorizedKeysEmpty(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_authorized_keys_empty", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func DiskAuthorizedKeysEmpty(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_authorized_keys_empty", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func StackScript(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_stackscript", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskStackScript(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_stackscript", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func BootState(t testing.TB, label, region string, booted bool, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_boot_state", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Booted:   booted,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func BootStateNoImage(t testing.TB, label, region string, booted bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_boot_state_noimage", TemplateData{
+			Label:  label,
+			Booted: booted,
+			Region: region,
+		})
+}
+
+func BootStateInterface(t testing.TB, label, region string, booted bool, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_boot_state_interface", TemplateData{
+			Label:    label,
+			Booted:   booted,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func BootStateConfig(t testing.TB, label, region string, booted bool, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_boot_state_config", TemplateData{
+			Label:    label,
+			Booted:   booted,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func TypeChangeDisk(t testing.TB, label, instanceType, region string, resizeDisk bool, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_type_change_disk", TemplateData{
+			Label:      label,
+			Type:       instanceType,
+			Image:      acceptance.TestImageLatest,
+			ResizeDisk: resizeDisk,
+			Region:     region,
+			RootPass:   rootPass,
+		})
+}
+
+func TypeChangeDiskExplicit(t testing.TB, label, instanceType, region string, resizeDisk bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_type_change_disk_explicit", TemplateData{
+			Label:      label,
+			Type:       instanceType,
+			ResizeDisk: resizeDisk,
+			Region:     region,
+		})
+}
+
+func TypeChangeDiskNone(t testing.TB, label, instanceType, region string, resizeDisk bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_type_change_disk_none", TemplateData{
+			Label:      label,
+			Type:       instanceType,
+			ResizeDisk: resizeDisk,
+			Region:     region,
+		})
+}
+
+func TypeChangeWarm(t testing.TB, label, instanceType, region string, resizeDisk bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_type_change_warm", TemplateData{
+			Label:      label,
+			Type:       instanceType,
+			Image:      acceptance.TestImageLatest,
+			ResizeDisk: resizeDisk,
+			Region:     region,
+		})
+}
+
+func IPv4Sharing(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_ipv4_sharing", TemplateData{
+			Label:  label,
+			Region: region,
+		})
+}
+
+func IPv4SharingEmpty(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_ipv4_sharing_empty", TemplateData{
+			Label:  label,
+			Region: region,
+		})
+}
+
+func IPv4SharingAllocation(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_ipv4_sharing_allocation", TemplateData{
+			Label:  label,
+			Region: region,
+		})
+}
+
+func IPv4SharingBadInput(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_ipv4_sharing_bad_input", TemplateData{
+			Label:  label,
+			Region: region,
+		})
+}
+
+func ManyLinodes(t testing.TB, label, pubKey, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_many_linodes", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			PubKey:   pubKey,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func UserData(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_userdata", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DiskEncryption(
+	t testing.TB,
+	label,
+	region,
+	rootPass string,
+	diskEncryption *linodego.InstanceDiskEncryption,
+) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_disk_encryption", TemplateData{
+			Label:          label,
+			Image:          acceptance.TestImageLatest,
+			Region:         region,
+			RootPass:       rootPass,
+			DiskEncryption: diskEncryption,
+		})
+}
+
+func DataBasic(t testing.TB, label, region string, rootPass, maintenancePolicy string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_basic", TemplateData{
+			Label:             label,
+			Image:             acceptance.TestImageLatest,
+			Region:            region,
+			RootPass:          rootPass,
+			MaintenancePolicy: maintenancePolicy,
+		})
+}
+
+func DataDevicesExt(t testing.TB, label, instanceType, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_devices_ext", TemplateData{
+			Label:    label,
+			Type:     instanceType,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DataWithBlockStorageEncryption(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_with_block_storage_encryption", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DataWithPG(t testing.TB, label, region, assignedGroup string, groups []string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_with_pg", TemplateData{
+			Label:           label,
+			Region:          region,
+			PlacementGroups: groups,
+			AssignedGroup:   assignedGroup,
+		})
+}
+
+func DataMultiple(t testing.TB, label, tag, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_multiple", TemplateData{
+			Label:    label,
+			Tag:      tag,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		})
+}
+
+func DataMultipleOrder(t testing.TB, label, tag, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_multiple_order", TemplateData{
+			Label:    label,
+			Tag:      tag,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DataMultipleRegex(t testing.TB, label, tag, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_multiple_regex", TemplateData{
+			Label:    label,
+			Tag:      tag,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DataClientFilter(t testing.TB, label, tag, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_clientfilter", TemplateData{
+			Label:    label,
+			Tag:      tag,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DataExplicitInterfaceGeneration(
+	t testing.TB,
+	label,
+	region,
+	image string,
+	generation linodego.InterfaceGeneration,
+	booted bool,
+	rootPass string,
+) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_explicit_interface_generation", TemplateData{
+			Label:               label,
+			Region:              region,
+			Image:               image,
+			InterfaceGeneration: generation,
+			Booted:              booted,
+			RootPass:            rootPass,
+		})
+}
+
+func FirewallOnCreation(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_firewall_on_creation", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func VPCInterface(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_vpc_interface", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		})
+}
+
+func VPCAndPublicInterfaces(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_vpc_public_interface", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		})
+}
+
+func PublicAndVPCInterfaces(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_public_vpc_interface", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		})
+}
+
+func PublicInterface(t testing.TB, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_public_interface", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		})
+}
+
+func WithPG(t testing.TB, label, region, assignedGroup string, groups []string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_pg", TemplateData{
+			Label:           label,
+			Region:          region,
+			PlacementGroups: groups,
+			AssignedGroup:   assignedGroup,
+		})
+}
+
+func WithReservedIP(t *testing.T, label, pubKey, region, rootPass string) string {
+	generatedConfig := acceptance.ExecuteTemplate(t,
+		"instance_with_reserved_ip", TemplateData{
+			Label:    label,
+			PubKey:   pubKey,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		})
+	return generatedConfig
+}
+
+func InterfacesVPCIPv60(t *testing.T, label, region, rootPass string) string {
+	generatedConfig := acceptance.ExecuteTemplate(t,
+		"instance_interfaces_vpc_ipv6_0", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+
+	return generatedConfig
+}
+
+func InterfacesVPCIPv61(t *testing.T, label, region, rootPass string) string {
+	generatedConfig := acceptance.ExecuteTemplate(t,
+		"instance_interfaces_vpc_ipv6_1", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+
+	return generatedConfig
+}
+
+func ConfigInterfacesVPCIPv6(t *testing.T, label, region, rootPass string) string {
+	generatedConfig := acceptance.ExecuteTemplate(t,
+		"instance_config_interfaces_vpc_ipv6", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+
+	return generatedConfig
+}
+
+func DataInterfacesVPCIPv6(t *testing.T, label, region, rootPass string) string {
+	generatedConfig := acceptance.ExecuteTemplate(t,
+		"instance_data_interfaces_vpc_ipv6", TemplateData{
+			Label:    label,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+
+	return generatedConfig
+}
+
+func OnlyReservedIP(t *testing.T, region string) string {
+	return fmt.Sprintf(`
+resource "linode_networking_ip" "test" {
+	type = "ipv4"
+	region = "%s"
+	public = true
+	reserved = true
+}
+`, region)
+}
+
+func WithLock(t testing.TB, label, region, lockType string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_with_lock", TemplateData{
+			Label:    label,
+			Region:   region,
+			LockType: lockType,
+		})
+}
+
+func DataWithLock(t testing.TB, label, region, lockType string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_with_lock", TemplateData{
+			Label:    label,
+			Region:   region,
+			LockType: lockType,
+		})
+}
+
+func DataWithAlerts(t testing.TB, label, region string, systemAlert int) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_data_with_alerts", TemplateData{
+			Label:       label,
+			Image:       acceptance.TestImageLatest,
+			Region:      region,
+			SystemAlert: systemAlert,
+		})
+}
+
+func ImageAuthKeysOnly(t testing.TB, label, pubKey, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_image_auth_keys_only", TemplateData{
+			Label:  label,
+			PubKey: pubKey,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func ImageAuthUsersOnly(t testing.TB, label, pubKey, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_image_auth_users_only", TemplateData{
+			Label:  label,
+			PubKey: pubKey,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func ImageNoAuth(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_image_no_auth", TemplateData{
+			Label:  label,
+			Image:  acceptance.TestImageLatest,
+			Region: region,
+		})
+}
+
+func KernelBootSize(t testing.TB, label, rootPass, region, kernel string, bootSize int) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_kernel_boot_size", TemplateData{
+			Label:    label,
+			RootPass: rootPass,
+			Image:    acceptance.TestImageLatest,
+			Region:   region,
+			Kernel:   kernel,
+			BootSize: bootSize,
+		})
+}
+
+func LinodeInterfacesRDMAVPC(t *testing.T, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"interfaces_rdma_vpc_base", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func LinodeInterfacesRDMAVPCManage(t *testing.T, label, region, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"interfaces_rdma_vpc_manage", TemplateData{
+			Label:    label,
+			Region:   region,
+			Image:    acceptance.TestImageLatest,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func LinodeInterfacesRDMAVPCManageUpdated(t *testing.T, label, region, rootPass, ipv4Address string) string {
+	return acceptance.ExecuteTemplate(t,
+		"interfaces_rdma_vpc_manage_updated", TemplateData{
+			Label:       label,
+			Region:      region,
+			Image:       acceptance.TestImageLatest,
+			RootPass:    rootPass,
+			IPv4Address: ipv4Address,
+		},
+	)
+}

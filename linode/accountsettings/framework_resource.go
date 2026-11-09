@@ -1,0 +1,189 @@
+package accountsettings
+
+import (
+	"context"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+func NewResource() resource.Resource {
+	return &Resource{
+		BaseResource: helper.NewBaseResource(
+			helper.BaseResourceConfig{
+				Name:   "linode_account_settings",
+				IDType: types.StringType,
+				Schema: &frameworkResourceSchema,
+			},
+		),
+	}
+}
+
+type Resource struct {
+	helper.BaseResource
+}
+
+func (r *Resource) Create(
+	ctx context.Context,
+	req resource.CreateRequest,
+	resp *resource.CreateResponse,
+) {
+	tflog.Debug(ctx, "Create "+r.Config.Name)
+
+	var plan AccountSettingsModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Update the account
+	r.createOrUpdateAccountSettings(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Apply the state changes
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *Resource) Read(
+	ctx context.Context,
+	req resource.ReadRequest,
+	resp *resource.ReadResponse,
+) {
+	tflog.Debug(ctx, "Read "+r.Config.Name)
+
+	client := r.Meta.Client
+
+	var data AccountSettingsModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if helper.FrameworkAttemptRemoveResourceForEmptyID(ctx, data.ID, resp) {
+		return
+	}
+
+	account, err := client.GetAccount(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Failed to get Linode Account",
+			err.Error(),
+		)
+		return
+	}
+
+	settings, err := client.GetAccountSettings(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Failed to get Linode Account Settings",
+			err.Error(),
+		)
+		return
+	}
+
+	data.FlattenAccountSettings(account.Email, settings, false)
+
+	// IDs should always be overridden during creation (see #1085)
+	// TODO: Remove when Crossplane empty string ID issue is resolved
+	data.ID = types.StringValue(account.Email)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *Resource) Update(
+	ctx context.Context,
+	req resource.UpdateRequest,
+	resp *resource.UpdateResponse,
+) {
+	tflog.Debug(ctx, "Update "+r.Config.Name)
+
+	var plan, state AccountSettingsModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Update the account
+	r.createOrUpdateAccountSettings(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan.CopyFrom(state, true)
+
+	// Workaround for Crossplane issue where ID is not
+	// properly populated in plan
+	// See TPT-2865 for more details
+	if plan.ID.ValueString() == "" {
+		plan.ID = state.ID
+	}
+
+	// Apply the state changes
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *Resource) Delete(
+	ctx context.Context,
+	req resource.DeleteRequest,
+	resp *resource.DeleteResponse,
+) {
+	tflog.Debug(ctx, "Delete "+r.Config.Name)
+}
+
+func (r *Resource) createOrUpdateAccountSettings(
+	ctx context.Context,
+	plan *AccountSettingsModel,
+	diags *diag.Diagnostics,
+) {
+	client := r.Meta.Client
+
+	account, err := client.GetAccount(ctx)
+	if err != nil {
+		diags.AddError(
+			"Failed to get Linode Account",
+			err.Error(),
+		)
+		return
+	}
+	email := account.Email
+
+	updateOpts := linodego.AccountSettingsUpdateOptions{}
+
+	if !plan.BackupsEnabled.IsUnknown() {
+		updateOpts.BackupsEnabled = plan.BackupsEnabled.ValueBoolPointer()
+	}
+
+	if !plan.NetworkHelper.IsUnknown() {
+		updateOpts.NetworkHelper = plan.NetworkHelper.ValueBoolPointer()
+	}
+
+	if !plan.InterfacesForNewLinodes.IsUnknown() {
+		updateOpts.InterfacesForNewLinodes = (*linodego.InterfacesForNewLinodes)(plan.InterfacesForNewLinodes.ValueStringPointer())
+	}
+
+	if !plan.MaintenancePolicy.IsUnknown() {
+		updateOpts.MaintenancePolicy = plan.MaintenancePolicy.ValueStringPointer()
+	}
+
+	tflog.Debug(ctx, "client.UpdateAccountSettings(...)", map[string]any{
+		"options": updateOpts,
+	})
+
+	settings, err := client.UpdateAccountSettings(ctx, updateOpts)
+	if err != nil {
+		diags.AddError("Failed to update Linode Account Settings", err.Error())
+		return
+	}
+
+	plan.FlattenAccountSettings(email, settings, true)
+}

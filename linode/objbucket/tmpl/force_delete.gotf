@@ -1,0 +1,13 @@
+{{ define "object_bucket_force_delete" }}
+
+provider "linode" {
+    obj_use_temp_keys = true
+    obj_bucket_force_delete = true
+}
+
+resource "linode_object_storage_bucket" "foobar" {
+    region = "{{ .Region }}"
+    label = "{{ .Label }}"
+}
+
+{{ end }}

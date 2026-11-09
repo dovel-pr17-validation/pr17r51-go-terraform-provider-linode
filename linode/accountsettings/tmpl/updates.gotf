@@ -1,0 +1,10 @@
+{{ define "account_settings_updates" }}
+
+resource "linode_account_settings" "foobar" {
+    backups_enabled = "{{ .BackupsEnabled }}"
+    network_helper = "{{ .NetworkHelper }}"
+    interfaces_for_new_linodes = "{{ .InterfacesForNewLinodes }}"
+    maintenance_policy = "{{ .MaintenancePolicy }}"
+}
+
+{{ end }}

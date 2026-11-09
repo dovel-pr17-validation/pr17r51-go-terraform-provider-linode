@@ -1,0 +1,185 @@
+package instancedisk
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+func AddDiskResource(ctx context.Context, disk linodego.InstanceDisk, resp *resource.CreateResponse, plan ResourceModel) {
+	resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(strconv.Itoa(disk.ID)))
+	resp.State.SetAttribute(ctx, path.Root("linode_id"), plan.LinodeID)
+}
+
+func getLinodeIDAndDiskID(data ResourceModel, diags *diag.Diagnostics) (int, int) {
+	id := helper.FrameworkSafeStringToInt(data.ID.ValueString(), diags)
+	linodeID := helper.FrameworkSafeInt64ToInt(data.LinodeID.ValueInt64(), diags)
+	return linodeID, id
+}
+
+// resizeDiskSync resizes the instance with the given ID to the given size,
+// shutting down/booting the instance if necessary.
+func resizeDiskSync(
+	ctx context.Context,
+	client *linodego.Client,
+	meta *helper.FrameworkProviderMeta,
+	linodeID,
+	diskID,
+	newSize int,
+) diag.Diagnostics {
+	return runDiskOperation(
+		ctx, client, meta, linodeID, false,
+		func() (resultDiag diag.Diagnostics) {
+			disk, err := client.GetInstanceDisk(ctx, linodeID, diskID)
+			if err != nil {
+				resultDiag.AddError("Failed to get Linode instance disk", err.Error())
+				return resultDiag
+			}
+
+			tflog.Info(ctx, "Resizing instance disk", map[string]any{
+				"old_size": disk.Size,
+				"new_size": newSize,
+			})
+
+			p, err := client.NewEventPollerWithSecondary(
+				ctx,
+				linodeID,
+				linodego.EntityLinode,
+				diskID,
+				linodego.ActionDiskResize)
+			if err != nil {
+				resultDiag.AddError("Failed to create event poller", err.Error())
+				return resultDiag
+			}
+
+			tflog.Debug(ctx, "client.ResizeInstanceDisk(...)", map[string]any{
+				"new_size": newSize,
+			})
+
+			instanceDiskResizeOptions := linodego.InstanceDiskResizeOptions{
+				Size: newSize,
+			}
+
+			if err := client.ResizeInstanceDisk(ctx, linodeID, diskID, instanceDiskResizeOptions); err != nil {
+				resultDiag.AddError("Failed to resize Linode instance disk", err.Error())
+				return resultDiag
+			}
+
+			// Wait for the resize event to complete
+			if _, err := p.WaitForFinished(ctx); err != nil {
+				resultDiag.AddError(
+					"Failed to wait for Linode instance disk resize to complete",
+					err.Error(),
+				)
+				return resultDiag
+			}
+
+			// Check to see if the resize operation worked
+			if updatedDisk, err := client.WaitForInstanceDiskStatus(
+				ctx,
+				linodeID,
+				disk.ID,
+				linodego.DiskReady,
+			); err != nil {
+				resultDiag.AddError(
+					"Failed to wait for Linode instance disk to be ready",
+					err.Error(),
+				)
+				return resultDiag
+			} else if updatedDisk.Size != newSize {
+				resultDiag.AddError(
+					"Failed to resize Linode instance disk",
+					fmt.Sprintf("Disk %d has size %d, expected %d", disk.ID, disk.Size, newSize),
+				)
+				return resultDiag
+			}
+
+			tflog.Debug(ctx, "Resize operation complete")
+			return resultDiag
+		},
+	)
+}
+
+func runDiskOperation(
+	ctx context.Context,
+	client *linodego.Client,
+	meta *helper.FrameworkProviderMeta,
+	linodeID int,
+	skipReboot bool,
+	callOperation func() diag.Diagnostics,
+) (resultDiag diag.Diagnostics) {
+	tflog.Debug(ctx, "Enter runDiskOperation")
+	originalStatus, err := helper.WaitForInstanceNonTransientStatus(
+		ctx, client, linodeID,
+	)
+	if err != nil {
+		resultDiag.AddError("Failed to wait for instance to exit transient status", err.Error())
+		return resultDiag
+	}
+
+	if originalStatus == linodego.InstanceRunning {
+		if meta.Config.SkipImplicitReboots.ValueBool() {
+			resultDiag.AddError(
+				"Linode instance shutdown is required to complete this operation",
+				"Please consider setting 'skip_implicit_reboots' "+
+					"to true in the Linode provider config.",
+			)
+			return resultDiag
+		}
+
+		if err := helper.ShutDownInstanceSync(ctx, client, linodeID); err != nil {
+			resultDiag.AddError("Failed to shutdown Linode instance", err.Error())
+			return resultDiag
+		}
+	}
+
+	// Run the operation
+	resultDiag.Append(callOperation()...)
+	if resultDiag.HasError() {
+		return resultDiag
+	}
+
+	if skipReboot {
+		tflog.Info(ctx, "Skipping reboot after disk operation", map[string]any{
+			"linode_id": linodeID,
+		})
+		return resultDiag
+	}
+
+	// Check if instance has disks before booting
+	tflog.Trace(ctx, "client.ListInstanceDisks(...)", map[string]any{
+		"linode_id": linodeID,
+	})
+	disks, err := client.ListInstanceDisks(ctx, linodeID, nil)
+	if err != nil {
+		resultDiag.AddError("Failed to list instance disks after operation", err.Error())
+		return resultDiag
+	}
+
+	if len(disks) == 0 {
+		// Skip reboot if no disks are attached
+		tflog.Info(ctx, "Skipping reboot: instance has no disks attached", map[string]any{
+			"linode_id": linodeID,
+		})
+		return resultDiag
+	}
+
+	// Boot the instance back up if necessary
+	if originalStatus == linodego.InstanceRunning {
+		// NOTE: A config ID of 0 will boot the instance into its previously booted config
+		if err := helper.BootInstanceSync(ctx, client, linodeID, 0); err != nil {
+			resultDiag.AddError("Failed to boot Linode instance", err.Error())
+			return resultDiag
+		}
+	}
+
+	return nil
+}

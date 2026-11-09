@@ -1,0 +1,25 @@
+{{ define "instance_multiple_configs" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    config {
+        label = "configa"
+        kernel = "linode/latest-64bit"
+        root_device = "/dev/sda"
+    }
+    config {
+        label = "configb"
+        kernel = "linode/latest-32bit"
+        root_device = "/dev/sda"
+    }
+
+    boot_config_label = "configa"
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

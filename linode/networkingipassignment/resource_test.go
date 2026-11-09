@@ -1,0 +1,131 @@
+//go:build integration || networkingipassignment
+
+package networkingipassignment_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"testing"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	"github.com/linode/terraform-provider-linode/v4/linode/networkingipassignment/tmpl"
+)
+
+var testRegion string
+
+func init() {
+	region, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{linodego.CapabilityLinodes}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	testRegion = region
+}
+
+func TestAccResourceNetworkingIPsAssign_basic(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "linode_networking_ip_assignment.test"
+	instanceName := acctest.RandomWithPrefix("tf_test")
+	rootPass := acctest.RandString(16) + "!A1a"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkNetworkingIPsAssignDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.NetworkingIPsAssign(t, instanceName, testRegion, rootPass),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "region"),
+					resource.TestCheckResourceAttrSet(resourceName, "assignments.#"),
+					func(*terraform.State) error {
+						time.Sleep(30 * time.Second) // Add a delay to allow for API propagation
+						return nil
+					},
+					checkNetworkingIPsAssignExists,
+					resource.TestCheckResourceAttrSet(resourceName, "assignments.0.linode_id"),
+					resource.TestCheckResourceAttrSet(resourceName, "assignments.0.address"),
+				),
+				ConfigStateChecks: []statecheck.StateCheck{
+					// Computed fields are null immediately after create; they are
+					// populated on the next refresh via GET /networking/ips/{address}.
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("reserved"), knownvalue.Null()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("tags"), knownvalue.Null()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("assigned_entity"), knownvalue.Null()),
+				},
+			},
+			{
+				// A subsequent plan/apply triggers Read which populates computed fields
+				// via GET /networking/ips/{address}.
+				Config: tmpl.NetworkingIPsAssign(t, instanceName, testRegion, rootPass),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("reserved"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("tags"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("assignments").AtSliceIndex(0).AtMapKey("assigned_entity"), knownvalue.NotNull()),
+				},
+			},
+			// Removed ImportState step as it's no longer supported
+		},
+	})
+}
+
+func checkNetworkingIPsAssignExists(s *terraform.State) error {
+	client := acceptance.TestAccSDKv2Provider.Meta().(*helper.ProviderMeta).Client
+
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "linode_networking_assign_ip" {
+			continue
+		}
+
+		filter := fmt.Sprintf("{\"region\": \"%s\"}", rs.Primary.Attributes["region"])
+		ips, err := client.ListIPAddresses(context.Background(), &linodego.ListOptions{Filter: filter})
+		if err != nil {
+			return fmt.Errorf("Error listing IP addresses: %s", err)
+		}
+
+		assignmentCount := 0
+		for _, ip := range ips {
+			if ip.LinodeID != 0 {
+				assignmentCount++
+			}
+		}
+
+		if assignmentCount == 0 {
+			return fmt.Errorf("No IP assignments found")
+		}
+	}
+
+	return nil
+}
+
+func checkNetworkingIPsAssignDestroy(s *terraform.State) error {
+	client := acceptance.TestAccSDKv2Provider.Meta().(*helper.ProviderMeta).Client
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "linode_networking_assign_ip" {
+			continue
+		}
+
+		ipAddress := rs.Primary.ID // Assuming ID is the address of the IP
+		_, err := client.GetIPAddress(context.Background(), ipAddress)
+		if err == nil {
+			return fmt.Errorf("Networking IPs Assign with id %s still exists", ipAddress)
+		}
+
+		if apiErr, ok := err.(*linodego.Error); ok && apiErr.Code != 404 {
+			return fmt.Errorf("Error requesting Networking IPs Assign with id %s", ipAddress)
+		}
+	}
+
+	return nil
+}

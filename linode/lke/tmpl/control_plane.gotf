@@ -1,0 +1,27 @@
+{{ define "lke_cluster_control_plane" }}
+
+resource "linode_lke_cluster" "test" {
+    label       = "{{.Label}}"
+    region      = "{{ .Region }}"
+    k8s_version = "{{.K8sVersion}}"
+    tags        = ["test"]
+    tier = "standard"
+
+    control_plane {
+        high_availability = {{ .HighAvailability }}
+        acl {
+            enabled = {{ .ACLEnabled }}
+            addresses {
+                ipv4 = ["{{.IPv4}}"]
+                ipv6 = ["{{.IPv6}}"]
+            }
+        }
+    }
+
+    pool {
+        type  = "g6-standard-2"
+        count = 1
+    }
+}
+
+{{ end }}

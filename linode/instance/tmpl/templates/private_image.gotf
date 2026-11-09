@@ -1,0 +1,47 @@
+{{ define "instance_private_image" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar-orig" {
+    label = "{{.Label}}-orig"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    image = "linode/arch"
+    root_pass = "{{ .RootPass }}"
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+resource "linode_image" "foobar" {
+    linode_id = "${linode_instance.foobar-orig.id}"
+    disk_id = "${linode_instance.foobar-orig.disk.0.id}"
+    label = "{{.Label}}"
+    description = "descriptive text"
+}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "boot"
+        size = 2200
+        filesystem = "ext4"
+        image = "${linode_image.foobar.id}"
+        root_pass = "{{ .RootPass }}"
+    }
+    disk {
+        label = "swap"
+        size = 512
+        filesystem = "ext4"
+    }
+    disk {
+        label = "logs"
+        size = 512
+        filesystem = "ext4"
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

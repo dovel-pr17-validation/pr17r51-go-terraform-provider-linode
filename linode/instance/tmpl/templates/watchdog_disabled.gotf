@@ -1,0 +1,16 @@
+{{ define "instance_watchdog_disabled" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label     = "{{.Label}}"
+    region    = "{{ .Region }}"
+    image     = "{{.Image}}"
+    type      = "g6-nanode-1"
+    root_pass = "{{ .RootPass }}"
+
+    watchdog_enabled = false
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

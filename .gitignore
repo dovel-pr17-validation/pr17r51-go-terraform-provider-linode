@@ -1,0 +1,38 @@
+*.dll
+*.exe
+.DS_Store
+*.backup
+*.log
+*.bak
+*~
+.*.swp
+*.iml
+*.test
+
+# tf
+.terraform/
+./*.tfstate
+example.tf
+terraform.tfplan
+terraform.tfstate
+
+# directories
+bin/
+modules-dev/
+/pkg/
+.vagrant/
+
+# editors
+.vscode
+.idea
+
+# Test exclusions
+!command/test-fixtures/**/*.tfstate
+!command/test-fixtures/**/.terraform/
+
+# Binary exclusions
+terraform-provider-linode
+.go-version
+
+dist/**
+vendor/**

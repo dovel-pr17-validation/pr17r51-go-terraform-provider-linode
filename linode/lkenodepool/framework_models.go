@@ -1,0 +1,511 @@
+package lkenodepool
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+type NodePoolModel struct {
+	ID             types.String              `tfsdk:"id"`
+	ClusterID      types.Int64               `tfsdk:"cluster_id"`
+	Count          types.Int64               `tfsdk:"node_count"`
+	Type           types.String              `tfsdk:"type"`
+	DiskEncryption types.String              `tfsdk:"disk_encryption"`
+	Tags           types.Set                 `tfsdk:"tags"`
+	Nodes          types.List                `tfsdk:"nodes"`
+	Autoscaler     []NodePoolAutoscalerModel `tfsdk:"autoscaler"`
+	Taints         []NodePoolTaintModel      `tfsdk:"taint"`
+	Labels         types.Map                 `tfsdk:"labels"`
+	K8sVersion     types.String              `tfsdk:"k8s_version"`
+	UpdateStrategy types.String              `tfsdk:"update_strategy"`
+	Label          types.String              `tfsdk:"label"`
+	FirewallID     types.Int64               `tfsdk:"firewall_id"`
+	IsolationIPv4  types.Bool                `tfsdk:"isolation_public_ipv4"`
+	IsolationIPv6  types.Bool                `tfsdk:"isolation_public_ipv6"`
+}
+
+type NodePoolAutoscalerModel struct {
+	Min types.Int64 `tfsdk:"min"`
+	Max types.Int64 `tfsdk:"max"`
+}
+
+type NodePoolTaintModel struct {
+	Effect types.String `tfsdk:"effect"`
+	Key    types.String `tfsdk:"key"`
+	Value  types.String `tfsdk:"value"`
+}
+
+type nodePoolDataSourceModel struct {
+	ID             types.Int64                        `tfsdk:"id"`
+	ClusterID      types.Int64                        `tfsdk:"cluster_id"`
+	Count          types.Int64                        `tfsdk:"node_count"`
+	Type           types.String                       `tfsdk:"type"`
+	Tags           types.List                         `tfsdk:"tags"`
+	DiskEncryption types.String                       `tfsdk:"disk_encryption"`
+	Labels         types.Map                          `tfsdk:"labels"`
+	Disks          []nodePoolDiskModel                `tfsdk:"disks"`
+	Nodes          types.List                         `tfsdk:"nodes"`
+	Autoscaler     *dataSourceNodePoolAutoScalerModel `tfsdk:"autoscaler"`
+	Taints         []NodePoolTaintModel               `tfsdk:"taints"`
+	K8sVersion     types.String                       `tfsdk:"k8s_version"`
+	UpdateStrategy types.String                       `tfsdk:"update_strategy"`
+	Label          types.String                       `tfsdk:"label"`
+	FirewallID     types.Int64                        `tfsdk:"firewall_id"`
+	IsolationIPv4  types.Bool                         `tfsdk:"isolation_public_ipv4"`
+	IsolationIPv6  types.Bool                         `tfsdk:"isolation_public_ipv6"`
+}
+type nodePoolDiskModel struct {
+	Size types.Int64  `tfsdk:"size"`
+	Type types.String `tfsdk:"type"`
+}
+
+type dataSourceNodePoolAutoScalerModel struct {
+	Enabled types.Bool  `tfsdk:"enabled"`
+	Min     types.Int64 `tfsdk:"min"`
+	Max     types.Int64 `tfsdk:"max"`
+}
+
+func (data *nodePoolDataSourceModel) parseLKENodePool(
+	ctx context.Context,
+	nodePool *linodego.LKENodePool,
+) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	data.ID = types.Int64Value(int64(nodePool.ID))
+	data.Count = types.Int64Value(int64(nodePool.Count))
+	data.Type = types.StringValue(nodePool.Type)
+	data.DiskEncryption = types.StringValue(string(nodePool.DiskEncryption))
+	data.Label = types.StringPointerValue(nodePool.Label)
+	data.K8sVersion = types.StringPointerValue(nodePool.K8sVersion)
+	data.UpdateStrategy = types.StringPointerValue((*string)(nodePool.UpdateStrategy))
+
+	data.IsolationIPv4 = types.BoolNull()
+	data.IsolationIPv6 = types.BoolNull()
+	if nodePool.Isolation != nil {
+		data.IsolationIPv4 = types.BoolValue(nodePool.Isolation.PublicIPv4)
+		data.IsolationIPv6 = types.BoolValue(nodePool.Isolation.PublicIPv6)
+	}
+
+	if nodePool.FirewallID != nil {
+		data.FirewallID = types.Int64Value(int64(*nodePool.FirewallID))
+	}
+
+	data.Tags, diags = types.ListValueFrom(ctx, types.StringType, nodePool.Tags)
+	if diags.HasError() {
+		return diags
+	}
+
+	data.Labels, diags = types.MapValueFrom(ctx, types.StringType, nodePool.Labels)
+	if diags.HasError() {
+		return diags
+	}
+
+	var linodes *types.List
+	linodes, diags = flattenLKENodePoolLinodeList(nodePool.Linodes)
+	if diags.HasError() {
+		return diags
+	}
+	data.Nodes = *linodes
+
+	disks := make([]nodePoolDiskModel, len(nodePool.Disks))
+	for i, d := range nodePool.Disks {
+		disks[i] = nodePoolDiskModel{
+			Size: types.Int64Value(int64(d.Size)),
+			Type: types.StringValue(d.Type),
+		}
+	}
+	data.Disks = disks
+
+	data.Autoscaler = &dataSourceNodePoolAutoScalerModel{
+		Enabled: types.BoolValue(nodePool.Autoscaler.Enabled),
+		Min:     types.Int64Value(int64(nodePool.Autoscaler.Min)),
+		Max:     types.Int64Value(int64(nodePool.Autoscaler.Max)),
+	}
+
+	taints := make([]NodePoolTaintModel, len(nodePool.Taints))
+	for i := range taints {
+		taints[i].FlattenLKENodePoolTaint(nodePool.Taints[i], false)
+	}
+	data.Taints = taints
+
+	return nil
+}
+
+func flattenLKENodePoolLinode(node linodego.LKENodePoolLinode) (*basetypes.ObjectValue, diag.Diagnostics) {
+	result := make(map[string]attr.Value)
+
+	result["id"] = types.StringValue(node.ID)
+	result["instance_id"] = types.Int64Value(int64(node.InstanceID))
+	result["status"] = types.StringValue(string(node.Status))
+
+	obj, errors := types.ObjectValue(nodeObjectType.AttrTypes, result)
+	if errors.HasError() {
+		return nil, errors
+	}
+	return &obj, nil
+}
+
+func flattenLKENodePoolLinodeList(nodes []linodego.LKENodePoolLinode,
+) (*basetypes.ListValue, diag.Diagnostics) {
+	resultList := make([]attr.Value, len(nodes))
+	for i, node := range nodes {
+		result, errors := flattenLKENodePoolLinode(node)
+		if errors.HasError() {
+			return nil, errors
+		}
+
+		resultList[i] = result
+	}
+	result, errors := basetypes.NewListValue(
+		nodeObjectType,
+		resultList,
+	)
+	if errors.HasError() {
+		return nil, errors
+	}
+
+	return &result, nil
+}
+
+func (taint *NodePoolTaintModel) FlattenLKENodePoolTaint(t linodego.LKENodePoolTaint, preserveKnown bool) {
+	taint.Effect = helper.KeepOrUpdateString(taint.Effect, string(t.Effect), preserveKnown)
+	taint.Key = helper.KeepOrUpdateString(taint.Key, t.Key, preserveKnown)
+	taint.Value = helper.KeepOrUpdateString(taint.Value, t.Value, preserveKnown)
+}
+
+func (pool *NodePoolModel) FlattenLKENodePoolTaints(taints []linodego.LKENodePoolTaint, preserveKnown bool) {
+	// taints block can't be computed and can't be modified if known values are preserved.
+	if preserveKnown {
+		return
+	}
+
+	pool.Taints = make([]NodePoolTaintModel, len(taints))
+	for i := range pool.Taints {
+		pool.Taints[i].FlattenLKENodePoolTaint(taints[i], preserveKnown)
+	}
+}
+
+func (pool *NodePoolModel) FlattenLKENodePool(
+	ctx context.Context, p *linodego.LKENodePool, preserveKnown bool, diags *diag.Diagnostics,
+) {
+	pool.ID = helper.KeepOrUpdateString(pool.ID, strconv.Itoa(p.ID), preserveKnown)
+	pool.Count = helper.KeepOrUpdateInt64(pool.Count, int64(p.Count), preserveKnown)
+	pool.Type = helper.KeepOrUpdateString(pool.Type, p.Type, preserveKnown)
+	pool.DiskEncryption = helper.KeepOrUpdateString(pool.DiskEncryption, string(p.DiskEncryption), preserveKnown)
+	pool.Label = helper.KeepOrUpdateStringPointer(pool.Label, p.Label, preserveKnown)
+	pool.FirewallID = helper.KeepOrUpdateIntPointer(pool.FirewallID, p.FirewallID, preserveKnown)
+	pool.Tags = helper.KeepOrUpdateStringSet(pool.Tags, p.Tags, preserveKnown, diags)
+	if diags.HasError() {
+		return
+	}
+
+	pool.Labels = helper.KeepOrUpdateStringMap(ctx, pool.Labels, p.Labels, preserveKnown, diags)
+
+	if !preserveKnown {
+		if p.Autoscaler.Enabled {
+			pool.Autoscaler = []NodePoolAutoscalerModel{
+				{
+					Min: types.Int64Value(int64(p.Autoscaler.Min)),
+					Max: types.Int64Value(int64(p.Autoscaler.Max)),
+				},
+			}
+		}
+		pool.FlattenLKENodePoolTaints(p.Taints, preserveKnown)
+	}
+
+	nodePoolLinodes, errs := flattenLKENodePoolLinodeList(p.Linodes)
+	if errs != nil {
+		diags.Append(errs...)
+	}
+	pool.Nodes = helper.KeepOrUpdateValue(pool.Nodes, *nodePoolLinodes, preserveKnown)
+
+	pool.K8sVersion = helper.KeepOrUpdateStringPointer(pool.K8sVersion, p.K8sVersion, preserveKnown)
+
+	if p.UpdateStrategy != nil {
+		pool.UpdateStrategy = helper.KeepOrUpdateString(pool.UpdateStrategy, string(*p.UpdateStrategy), preserveKnown)
+	} else {
+		pool.UpdateStrategy = helper.KeepOrUpdateString(pool.UpdateStrategy, "", preserveKnown)
+	}
+
+	if p.Isolation != nil {
+		pool.IsolationIPv4 = helper.KeepOrUpdateValue(pool.IsolationIPv4, types.BoolValue(p.Isolation.PublicIPv4), preserveKnown)
+		pool.IsolationIPv6 = helper.KeepOrUpdateValue(pool.IsolationIPv6, types.BoolValue(p.Isolation.PublicIPv6), preserveKnown)
+	} else {
+		pool.IsolationIPv4 = helper.KeepOrUpdateValue(pool.IsolationIPv4, types.BoolNull(), preserveKnown)
+		pool.IsolationIPv6 = helper.KeepOrUpdateValue(pool.IsolationIPv6, types.BoolNull(), preserveKnown)
+	}
+}
+
+// validateEnterpriseOnlyAttributes ensures attributes that are only valid for
+// LKE Enterprise clusters are not configured on non-enterprise clusters.
+func (pool *NodePoolModel) validateEnterpriseOnlyAttributes(tier string, diags *diag.Diagnostics) {
+	if tier == string(linodego.LKEVersionEnterprise) {
+		return
+	}
+
+	isolationIPv4Set := !pool.IsolationIPv4.IsNull() && !pool.IsolationIPv4.IsUnknown()
+	isolationIPv6Set := !pool.IsolationIPv6.IsNull() && !pool.IsolationIPv6.IsUnknown()
+	if isolationIPv4Set || isolationIPv6Set {
+		diags.AddError(
+			"Invalid isolation configuration",
+			"isolation is only available for LKE Enterprise clusters.",
+		)
+	}
+}
+
+func (pool *NodePoolModel) SetNodePoolCreateOptions(
+	ctx context.Context,
+	p *linodego.LKENodePoolCreateOptions,
+	diags *diag.Diagnostics,
+	tier string,
+) {
+	p.Count = helper.FrameworkSafeInt64ToInt(
+		pool.Count.ValueInt64(),
+		diags,
+	)
+	p.Type = pool.Type.ValueString()
+	p.Label = pool.Label.ValueStringPointer()
+	if !pool.FirewallID.IsUnknown() {
+		p.FirewallID = helper.FrameworkSafeInt64PointerToIntPointer(pool.FirewallID.ValueInt64Pointer(), diags)
+		if diags.HasError() {
+			return
+		}
+	}
+
+	if !pool.Tags.IsNull() {
+		diags.Append(pool.Tags.ElementsAs(ctx, &p.Tags, false)...)
+	}
+
+	p.Autoscaler = pool.getLKENodePoolAutoscaler(p.Count, diags)
+	if p.Autoscaler.Enabled && p.Count == 0 {
+		p.Count = p.Autoscaler.Min
+	}
+
+	p.Taints = pool.getLKENodePoolTaints()
+
+	pool.Labels.ElementsAs(ctx, &p.Labels, false)
+
+	if tier == string(linodego.LKEVersionEnterprise) {
+		if !pool.K8sVersion.IsNull() && !pool.K8sVersion.IsUnknown() {
+			p.K8sVersion = pool.K8sVersion.ValueStringPointer()
+		}
+		if !pool.UpdateStrategy.IsNull() && !pool.UpdateStrategy.IsUnknown() {
+			p.UpdateStrategy = linodego.Pointer(linodego.LKENodePoolUpdateStrategy(pool.UpdateStrategy.ValueString()))
+		}
+	}
+
+	if !pool.DiskEncryption.IsNull() && !pool.DiskEncryption.IsUnknown() {
+		p.DiskEncryption = linodego.Pointer(linodego.InstanceDiskEncryption(pool.DiskEncryption.ValueString()))
+	}
+
+	isolationIPv4Known := !pool.IsolationIPv4.IsNull() && !pool.IsolationIPv4.IsUnknown()
+	isolationIPv6Known := !pool.IsolationIPv6.IsNull() && !pool.IsolationIPv6.IsUnknown()
+	if isolationIPv4Known || isolationIPv6Known {
+		p.Isolation = &linodego.LKENodePoolIsolationCreateOptions{}
+
+		if isolationIPv4Known {
+			p.Isolation.PublicIPv4 = linodego.Pointer(pool.IsolationIPv4.ValueBool())
+		}
+		if isolationIPv6Known {
+			p.Isolation.PublicIPv6 = linodego.Pointer(pool.IsolationIPv6.ValueBool())
+		}
+	}
+}
+
+func (pool *NodePoolModel) SetNodePoolUpdateOptions(
+	ctx context.Context,
+	p *linodego.LKENodePoolUpdateOptions,
+	diags *diag.Diagnostics,
+	state *NodePoolModel,
+	tier string,
+) bool {
+	var shouldUpdate bool
+
+	plannedCount := helper.FrameworkSafeInt64ToInt(
+		pool.Count.ValueInt64(),
+		diags,
+	)
+	if diags.HasError() {
+		return false
+	}
+
+	if !state.Count.Equal(pool.Count) {
+		p.Count = plannedCount
+		shouldUpdate = true
+	}
+
+	if !state.Label.Equal(pool.Label) {
+		p.Label = pool.Label.ValueStringPointer()
+		shouldUpdate = true
+	}
+
+	if !state.FirewallID.Equal(pool.FirewallID) {
+		if !pool.FirewallID.IsUnknown() {
+			p.FirewallID = helper.FrameworkSafeInt64PointerToIntPointer(pool.FirewallID.ValueInt64Pointer(), diags)
+			if diags.HasError() {
+				return false
+			}
+		}
+		// else: do NOT set p.FirewallID at all
+		shouldUpdate = true
+	}
+
+	if !state.Tags.Equal(pool.Tags) {
+		if !pool.Tags.IsNull() {
+			diags.Append(pool.Tags.ElementsAs(ctx, &p.Tags, false)...)
+			if diags.HasError() {
+				return false
+			}
+		}
+
+		shouldUpdate = true
+	}
+
+	autoscaler, asNeedsUpdate := pool.shouldUpdateLKENodePoolAutoscaler(state, diags)
+	if diags.HasError() {
+		return false
+	}
+
+	if asNeedsUpdate {
+		p.Autoscaler = autoscaler
+
+		// If autoscaling is enabled and the user hasn't configured a
+		// valid node count, use the autoscaler's minimum.
+		if p.Autoscaler.Enabled && plannedCount == 0 {
+			p.Count = p.Autoscaler.Min
+		}
+	}
+
+	shouldUpdate = shouldUpdate || asNeedsUpdate
+
+	if len(state.Taints) != 0 || len(pool.Taints) != 0 {
+		taints := pool.getLKENodePoolTaints()
+		p.Taints = taints
+		shouldUpdate = true
+	}
+
+	if !state.Labels.Equal(pool.Labels) {
+		pool.Labels.ElementsAs(ctx, &p.Labels, false)
+		shouldUpdate = true
+	}
+
+	if tier == string(linodego.LKEVersionEnterprise) {
+		if !state.K8sVersion.Equal(pool.K8sVersion) {
+			p.K8sVersion = pool.K8sVersion.ValueStringPointer()
+			shouldUpdate = true
+		}
+
+		if !state.UpdateStrategy.Equal(pool.UpdateStrategy) {
+			p.UpdateStrategy = linodego.Pointer(linodego.LKENodePoolUpdateStrategy(pool.UpdateStrategy.ValueString()))
+			shouldUpdate = true
+		}
+	}
+
+	return shouldUpdate
+}
+
+func (pool *NodePoolModel) ExtractClusterAndNodePoolIDs(diags *diag.Diagnostics) (int, int) {
+	clusterID := helper.FrameworkSafeInt64ToInt(pool.ClusterID.ValueInt64(), diags)
+	poolID, err := strconv.Atoi(pool.ID.ValueString())
+	if err != nil {
+		diags.AddError("Failed to parse poolID", err.Error())
+	}
+	return clusterID, poolID
+}
+
+func (pool *NodePoolModel) getLKENodePoolAutoscaler(count int, diags *diag.Diagnostics) *linodego.LKENodePoolAutoscaler {
+	var autoscaler linodego.LKENodePoolAutoscaler
+	if len(pool.Autoscaler) > 0 {
+		autoscaler.Enabled = true
+		autoscaler.Min = helper.FrameworkSafeInt64ToInt(pool.Autoscaler[0].Min.ValueInt64(), diags)
+		autoscaler.Max = helper.FrameworkSafeInt64ToInt(pool.Autoscaler[0].Max.ValueInt64(), diags)
+	} else {
+		autoscaler.Enabled = false
+		autoscaler.Min = count
+		autoscaler.Max = count
+	}
+	return &autoscaler
+}
+
+func (pool *NodePoolModel) shouldUpdateLKENodePoolAutoscaler(
+	state *NodePoolModel,
+	diags *diag.Diagnostics,
+) (*linodego.LKENodePoolAutoscaler, bool) {
+	var autoscaler linodego.LKENodePoolAutoscaler
+	var shouldUpdate bool
+
+	if len(pool.Autoscaler) > 0 {
+		if len(state.Autoscaler) == 0 ||
+			(len(state.Autoscaler) > 0 && (!state.Autoscaler[0].Min.Equal(pool.Autoscaler[0].Min) ||
+				!state.Autoscaler[0].Max.Equal(pool.Autoscaler[0].Max))) {
+			autoscaler.Enabled = true
+			autoscaler.Min = helper.FrameworkSafeInt64ToInt(pool.Autoscaler[0].Min.ValueInt64(), diags)
+			autoscaler.Max = helper.FrameworkSafeInt64ToInt(pool.Autoscaler[0].Max.ValueInt64(), diags)
+
+			shouldUpdate = true
+		}
+	} else if len(state.Autoscaler) > 0 {
+		autoscaler.Enabled = false
+
+		// These values are discarded by the API when autoscaling is disabled,
+		// so we can just use the plan's count since it should meet the validation requirements.
+		planNodeCount := helper.FrameworkSafeInt64ToInt(pool.Count.ValueInt64(), diags)
+		if diags.HasError() {
+			return nil, false
+		}
+
+		autoscaler.Min = planNodeCount
+		autoscaler.Max = planNodeCount
+
+		shouldUpdate = true
+	}
+
+	return &autoscaler, shouldUpdate
+}
+
+func (taint NodePoolTaintModel) getLKENodePoolTaint() linodego.LKENodePoolTaint {
+	return linodego.LKENodePoolTaint{
+		Effect: linodego.LKENodePoolTaintEffect(taint.Effect.ValueString()),
+		Key:    taint.Key.ValueString(),
+		Value:  taint.Value.ValueString(),
+	}
+}
+
+func (pool *NodePoolModel) getLKENodePoolTaints() []linodego.LKENodePoolTaint {
+	taints := make([]linodego.LKENodePoolTaint, len(pool.Taints))
+
+	for i := range pool.Taints {
+		taints[i] = pool.Taints[i].getLKENodePoolTaint()
+	}
+
+	return taints
+}
+
+func (data *NodePoolModel) CopyFrom(other NodePoolModel, preserveKnown bool) {
+	data.ID = helper.KeepOrUpdateValue(data.ID, other.ID, preserveKnown)
+	data.ClusterID = helper.KeepOrUpdateValue(data.ClusterID, other.ClusterID, preserveKnown)
+	data.Count = helper.KeepOrUpdateValue(data.Count, other.Count, preserveKnown)
+	data.Type = helper.KeepOrUpdateValue(data.Type, other.Type, preserveKnown)
+	data.DiskEncryption = helper.KeepOrUpdateValue(data.DiskEncryption, other.DiskEncryption, preserveKnown)
+	data.Tags = helper.KeepOrUpdateValue(data.Tags, other.Tags, preserveKnown)
+	data.Nodes = helper.KeepOrUpdateValue(data.Nodes, other.Nodes, preserveKnown)
+	data.Labels = helper.KeepOrUpdateValue(data.Labels, other.Labels, preserveKnown)
+	data.K8sVersion = helper.KeepOrUpdateValue(data.K8sVersion, other.K8sVersion, preserveKnown)
+	data.UpdateStrategy = helper.KeepOrUpdateValue(data.UpdateStrategy, other.UpdateStrategy, preserveKnown)
+	data.Label = helper.KeepOrUpdateValue(data.Label, other.Label, preserveKnown)
+	data.FirewallID = helper.KeepOrUpdateValue(data.FirewallID, other.FirewallID, preserveKnown)
+	data.IsolationIPv4 = helper.KeepOrUpdateValue(data.IsolationIPv4, other.IsolationIPv4, preserveKnown)
+	data.IsolationIPv6 = helper.KeepOrUpdateValue(data.IsolationIPv6, other.IsolationIPv6, preserveKnown)
+
+	if !preserveKnown {
+		data.Autoscaler = other.Autoscaler
+		data.Taints = other.Taints
+	}
+}

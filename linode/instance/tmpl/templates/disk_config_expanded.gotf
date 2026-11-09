@@ -1,0 +1,30 @@
+{{ define "instance_disk_config_expanded" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    type = "g6-standard-1"
+    region = "{{ .Region }}"
+
+    disk {
+        label = "disk"
+        image = "{{.Image}}"
+        root_pass = "{{ .RootPass }}"
+        authorized_keys = ["{{.PubKey}}"]
+        size = 51200
+    }
+
+    config {
+        label = "config"
+        kernel = "linode/latest-64bit"
+        devices {
+            sda {
+                disk_label = "disk"
+            }
+        }
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

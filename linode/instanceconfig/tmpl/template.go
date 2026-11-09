@@ -1,0 +1,201 @@
+package tmpl
+
+import (
+	"testing"
+
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+)
+
+type TemplateData struct {
+	Label    string
+	Type     string
+	Booted   bool
+	Swap     bool
+	Region   string
+	RootPass string
+	Image    string
+}
+
+func Basic(t testing.TB, label, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_basic", TemplateData{
+			Label:  label,
+			Region: region,
+		})
+}
+
+func Complex(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_complex", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func ComplexUpdates(t testing.TB, label, region string, rootPass string, booted bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_complex_updates", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+			Booted:   booted,
+		})
+}
+
+func Booted(t testing.TB, label, region string, booted bool, rootPass string, image ...string) string {
+	data := TemplateData{
+		Label:    label,
+		Booted:   booted,
+		Region:   region,
+		RootPass: rootPass,
+	}
+
+	if len(image) > 0 {
+		data.Image = image[0]
+	}
+
+	return acceptance.ExecuteTemplate(t, "instance_config_booted", data)
+}
+
+func BootedSwap(t testing.TB, label, region string, swap bool, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_booted_swap", TemplateData{
+			Label:    label,
+			Swap:     swap,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func Provisioner(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(t,
+		"instance_config_provisioner", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		})
+}
+
+func DeviceBlock(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_device_block", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func DeviceNamedBlock(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_device_named_block", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterface(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"vpc_interface", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceUpdated(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"vpc_interface_update", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceRemoved(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"vpc_interface_remove", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceSwapped(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"vpc_interface_swap", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceOnly(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"vpc_interface_only", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceIPv60(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_vpc_interface_ipv6_0", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func VPCInterfaceIPv61(t testing.TB, label, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_vpc_interface_ipv6_1", TemplateData{
+			Label:    label,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func DeviceBlockExt(t testing.TB, label, instanceType, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_device_block_ext", TemplateData{
+			Label:    label,
+			Type:     instanceType,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}
+
+func DeviceNamedBlockExt(t testing.TB, label, instanceType, region string, rootPass string) string {
+	return acceptance.ExecuteTemplate(
+		t,
+		"instance_config_device_named_block_ext", TemplateData{
+			Label:    label,
+			Type:     instanceType,
+			Region:   region,
+			RootPass: rootPass,
+		},
+	)
+}

@@ -1,0 +1,304 @@
+package lke
+
+import (
+	"context"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	"github.com/linode/terraform-provider-linode/v4/linode/lkenodepool"
+)
+
+// LKEDataModel describes the Terraform resource data model to match the
+// data source schema.
+type LKEDataModel struct {
+	// LKE Cluster
+	ID           types.Int64       `tfsdk:"id"`
+	Created      types.String      `tfsdk:"created"`
+	Updated      types.String      `tfsdk:"updated"`
+	Label        types.String      `tfsdk:"label"`
+	Region       types.String      `tfsdk:"region"`
+	Status       types.String      `tfsdk:"status"`
+	K8sVersion   types.String      `tfsdk:"k8s_version"`
+	APLEnabled   types.Bool        `tfsdk:"apl_enabled"`
+	Tags         types.Set         `tfsdk:"tags"`
+	Tier         types.String      `tfsdk:"tier"`
+	SubnetID     types.Int64       `tfsdk:"subnet_id"`
+	VpcID        types.Int64       `tfsdk:"vpc_id"`
+	StackType    types.String      `tfsdk:"stack_type"`
+	Networking   []LKENetworking   `tfsdk:"networking"`
+	ControlPlane []LKEControlPlane `tfsdk:"control_plane"`
+
+	// LKE Node Pools
+	Pools []LKENodePool `tfsdk:"pools"`
+
+	// LKE Cluster Kubeconfig
+	Kubeconfig types.String `tfsdk:"kubeconfig"`
+
+	// LKE Cluster API endpoints
+	APIEndpoints types.List `tfsdk:"api_endpoints"`
+}
+
+type LKENetworking struct {
+	RoutingMode                     types.String `tfsdk:"routing_mode"`
+	ClusterCIDRIPv4                 types.String `tfsdk:"cluster_cidr_ipv4"`
+	NodeCIDRMaskSizeIPv4            types.Int64  `tfsdk:"node_cidr_mask_size_ipv4"`
+	ServiceClusterIPRangeIPv4       types.String `tfsdk:"service_cluster_ip_range_ipv4"`
+	MaxPods                         types.Int64  `tfsdk:"max_pods"`
+	NodeBalancerBackendPrefixLength types.Int64  `tfsdk:"nodebalancer_backend_prefix_length"`
+	ClusterCIDRIPv6                 types.String `tfsdk:"cluster_cidr_ipv6"`
+	NodeCIDRMaskSizeIPv6            types.Int64  `tfsdk:"node_cidr_mask_size_ipv6"`
+	ServiceClusterIPRangeIPv6       types.String `tfsdk:"service_cluster_ip_range_ipv6"`
+}
+
+type LKEControlPlane struct {
+	HighAvailability types.Bool           `tfsdk:"high_availability"`
+	AuditLogsEnabled types.Bool           `tfsdk:"audit_logs_enabled"`
+	ACL              []LKEControlPlaneACL `tfsdk:"acl"`
+}
+
+type LKEControlPlaneACL struct {
+	Enabled   types.Bool                    `tfsdk:"enabled"`
+	Addresses []LKEControlPlaneACLAddresses `tfsdk:"addresses"`
+}
+
+type LKEControlPlaneACLAddresses struct {
+	IPv4 types.Set `tfsdk:"ipv4"`
+	IPv6 types.Set `tfsdk:"ipv6"`
+}
+
+type LKENodePool struct {
+	ID             types.Int64                      `tfsdk:"id"`
+	Count          types.Int64                      `tfsdk:"count"`
+	Type           types.String                     `tfsdk:"type"`
+	Tags           types.List                       `tfsdk:"tags"`
+	DiskEncryption types.String                     `tfsdk:"disk_encryption"`
+	Labels         types.Map                        `tfsdk:"labels"`
+	Disks          []LKENodePoolDisk                `tfsdk:"disks"`
+	Nodes          []LKENodePoolNode                `tfsdk:"nodes"`
+	Autoscaler     []LKENodePoolAutoscaler          `tfsdk:"autoscaler"`
+	Taints         []lkenodepool.NodePoolTaintModel `tfsdk:"taints"`
+	K8sVersion     types.String                     `tfsdk:"k8s_version"`
+	UpdateStrategy types.String                     `tfsdk:"update_strategy"`
+	Label          types.String                     `tfsdk:"label"`
+	FirewallId     types.Int64                      `tfsdk:"firewall_id"`
+}
+
+type LKENodePoolDisk struct {
+	Size types.Int64  `tfsdk:"size"`
+	Type types.String `tfsdk:"type"`
+}
+
+type LKENodePoolNode struct {
+	ID         types.String `tfsdk:"id"`
+	InstanceID types.Int64  `tfsdk:"instance_id"`
+	Status     types.String `tfsdk:"status"`
+}
+
+type LKENodePoolAutoscaler struct {
+	Enabled types.Bool  `tfsdk:"enabled"`
+	Min     types.Int64 `tfsdk:"min"`
+	Max     types.Int64 `tfsdk:"max"`
+}
+
+func (data *LKEDataModel) parseLKEAttributes(
+	ctx context.Context,
+	cluster *linodego.LKECluster,
+	pools []linodego.LKENodePool,
+	kubeconfig *linodego.LKEClusterKubeconfig,
+	endpoints []linodego.LKEClusterAPIEndpoint,
+	acl *linodego.LKEClusterControlPlaneACLResponse,
+	networking *linodego.LKEClusterNetworking,
+) diag.Diagnostics {
+	data.Created = types.StringValue(cluster.Created.Format(helper.TIME_FORMAT))
+	data.Updated = types.StringValue(cluster.Updated.Format(helper.TIME_FORMAT))
+	data.Label = types.StringValue(cluster.Label)
+	data.Region = types.StringValue(cluster.Region)
+	data.Status = types.StringValue(string(cluster.Status))
+	data.K8sVersion = types.StringValue(cluster.K8sVersion)
+	data.APLEnabled = types.BoolValue(cluster.APLEnabled)
+	data.Tier = types.StringValue(cluster.Tier)
+	data.SubnetID = types.Int64Value(int64(cluster.SubnetID))
+	data.VpcID = types.Int64Value(int64(cluster.VpcID))
+	data.StackType = types.StringValue(string(cluster.StackType))
+	data.Networking = parseNetworking(networking)
+
+	tags, diags := types.SetValueFrom(ctx, types.StringType, cluster.Tags)
+	if diags.HasError() {
+		return diags
+	}
+	data.Tags = tags
+
+	cp, diags := parseControlPlane(ctx, cluster.ControlPlane, acl)
+	if diags.HasError() {
+		return diags
+	}
+
+	data.ControlPlane = []LKEControlPlane{cp}
+
+	parseLKEPools := func() ([]LKENodePool, diag.Diagnostics) {
+		lkePools := make([]LKENodePool, len(pools))
+
+		for i, p := range pools {
+			var pool LKENodePool
+			pool.ID = types.Int64Value(int64(p.ID))
+			pool.Count = types.Int64Value(int64(p.Count))
+			pool.Type = types.StringValue(p.Type)
+			pool.DiskEncryption = types.StringValue(string(p.DiskEncryption))
+			pool.K8sVersion = types.StringPointerValue(p.K8sVersion)
+
+			var label basetypes.StringValue
+			if p.Label != nil {
+				label = types.StringPointerValue(p.Label)
+			}
+			pool.Label = label
+
+			if p.FirewallID != nil {
+				firewallId := types.Int64Value(int64(*p.FirewallID))
+				pool.FirewallId = firewallId
+			}
+
+			if p.UpdateStrategy != nil {
+				pool.UpdateStrategy = types.StringValue(string(*p.UpdateStrategy))
+			}
+
+			tags, diags := types.ListValueFrom(ctx, types.StringType, p.Tags)
+			if diags.HasError() {
+				return nil, diags
+			}
+			pool.Tags = tags
+
+			labels, diags := types.MapValueFrom(ctx, types.StringType, p.Labels)
+			if diags.HasError() {
+				return nil, diags
+			}
+			pool.Labels = labels
+
+			pool.Nodes = make([]LKENodePoolNode, len(p.Linodes))
+			for i, linode := range p.Linodes {
+				pool.Nodes[i].ID = types.StringValue(linode.ID)
+				pool.Nodes[i].InstanceID = types.Int64Value(int64(linode.InstanceID))
+				pool.Nodes[i].Status = types.StringValue(string(linode.Status))
+			}
+
+			// Only parse the autoscaler when it's enabled in order to keep returning
+			// the same list result of SDKv2.
+			if p.Autoscaler.Enabled {
+				pool.Autoscaler = []LKENodePoolAutoscaler{
+					{
+						Enabled: types.BoolValue(p.Autoscaler.Enabled),
+						Min:     types.Int64Value(int64(p.Autoscaler.Min)),
+						Max:     types.Int64Value(int64(p.Autoscaler.Max)),
+					},
+				}
+			}
+
+			pool.Disks = make([]LKENodePoolDisk, len(p.Disks))
+			for i, d := range p.Disks {
+				pool.Disks[i].Size = types.Int64Value(int64(d.Size))
+				pool.Disks[i].Type = types.StringValue(d.Type)
+			}
+
+			pool.Taints = make([]lkenodepool.NodePoolTaintModel, len(p.Taints))
+			for i, taint := range p.Taints {
+				pool.Taints[i].Effect = types.StringValue(string(taint.Effect))
+				pool.Taints[i].Key = types.StringValue(taint.Key)
+				pool.Taints[i].Value = types.StringValue(taint.Value)
+			}
+
+			lkePools[i] = pool
+		}
+		return lkePools, nil
+	}
+
+	lkePools, diags := parseLKEPools()
+	if diags.HasError() {
+		return diags
+	}
+	data.Pools = lkePools
+
+	if kubeconfig != nil {
+		data.Kubeconfig = types.StringValue(kubeconfig.KubeConfig)
+	} else {
+		data.Kubeconfig = types.StringNull()
+	}
+
+	var urls []string
+	for _, e := range endpoints {
+		urls = append(urls, e.Endpoint)
+	}
+
+	apiEndpoints, diags := types.ListValueFrom(ctx, types.StringType, urls)
+	if diags.HasError() {
+		return diags
+	}
+	data.APIEndpoints = apiEndpoints
+
+	return nil
+}
+
+func parseControlPlane(
+	ctx context.Context,
+	controlPlane linodego.LKEClusterControlPlane,
+	aclResp *linodego.LKEClusterControlPlaneACLResponse,
+) (LKEControlPlane, diag.Diagnostics) {
+	var cp LKEControlPlane
+
+	if aclResp != nil {
+		acl := aclResp.ACL
+		var cpACL LKEControlPlaneACL
+
+		if acl.Addresses != nil {
+			ipv4, diags := types.SetValueFrom(ctx, types.StringType, acl.Addresses.IPv4)
+			if diags.HasError() {
+				return cp, diags
+			}
+
+			ipv6, diags := types.SetValueFrom(ctx, types.StringType, acl.Addresses.IPv6)
+			if diags.HasError() {
+				return cp, diags
+			}
+
+			cpACL.Addresses = []LKEControlPlaneACLAddresses{{
+				IPv4: ipv4,
+				IPv6: ipv6,
+			}}
+		}
+
+		cpACL.Enabled = types.BoolValue(acl.Enabled)
+		cp.ACL = []LKEControlPlaneACL{cpACL}
+	} else {
+		cp.ACL = []LKEControlPlaneACL{}
+	}
+
+	cp.HighAvailability = types.BoolValue(controlPlane.HighAvailability)
+	cp.AuditLogsEnabled = types.BoolValue(controlPlane.AuditLogsEnabled)
+
+	return cp, nil
+}
+
+func parseNetworking(networking *linodego.LKEClusterNetworking) []LKENetworking {
+	if networking == nil {
+		return []LKENetworking{}
+	}
+
+	result := LKENetworking{
+		RoutingMode:                     types.StringValue(string(networking.RoutingMode)),
+		ClusterCIDRIPv4:                 types.StringValue(networking.ClusterCIDRIPv4),
+		NodeCIDRMaskSizeIPv4:            types.Int64Value(int64(networking.NodeCIDRMaskSizeIPv4)),
+		ServiceClusterIPRangeIPv4:       types.StringValue(networking.ServiceClusterIPRangeIPv4),
+		MaxPods:                         types.Int64Value(int64(networking.MaxPods)),
+		NodeBalancerBackendPrefixLength: types.Int64Value(int64(networking.NodeBalancerBackendPrefixLength)),
+		ClusterCIDRIPv6:                 types.StringPointerValue(networking.ClusterCIDRIPv6),
+		NodeCIDRMaskSizeIPv6:            types.Int64Null(),
+		ServiceClusterIPRangeIPv6:       types.StringPointerValue(networking.ServiceClusterIPRangeIPv6),
+	}
+
+	if networking.NodeCIDRMaskSizeIPv6 != nil {
+		result.NodeCIDRMaskSizeIPv6 = types.Int64Value(int64(*networking.NodeCIDRMaskSizeIPv6))
+	}
+
+	return []LKENetworking{result}
+}

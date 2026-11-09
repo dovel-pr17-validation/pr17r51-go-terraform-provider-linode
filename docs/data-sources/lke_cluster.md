@@ -1,0 +1,146 @@
+---
+page_title: "Linode: linode_lke_cluster"
+description: |-
+  Provides details about an LKE Cluster.
+---
+
+# Data Source: linode\_lke\_cluster
+
+Provides details about an LKE Cluster.
+For more information, see the [Linode APIv4 docs](https://techdocs.akamai.com/linode-api/reference/get-lke-cluster).
+
+## Example Usage
+
+```terraform
+data "linode_lke_cluster" "my-cluster" {
+    id = 123
+}
+```
+
+## Argument Reference
+
+The following arguments are supported:
+
+* `id` - (Required) The LKE Cluster's ID.
+
+## Attributes Reference
+
+In addition to all arguments above, the following attributes are exported:
+
+**NOTE:** Nested fields are tagged as either **Block** (declared as `field { ... }`) or **Nested Attribute** (declared as `field = { ... }`). See the [Blocks vs. Nested Attributes](../guides/blocks_vs_nested_attributes.md) guide for details.
+
+* `k8s_version` - The Kubernetes version for this Kubernetes cluster in the format of `major.minor` (e.g. `1.17`).
+
+* `region` - This Kubernetes cluster's location.
+
+* `tags` - The tags applied to the cluster. Tags are case-insensitive and are for organizational purposes only.
+
+* `status` - The status of the cluster.
+
+* `label` - The unique label for the cluster.
+
+* `created` - When this Kubernetes cluster was created.
+
+* `updated` - When this Kubernetes cluster was updated.
+
+* `api_endpoints` - The endpoints for the Kubernetes API server.
+
+* `kubeconfig` - The base64 encoded kubeconfig for the Kubernetes cluster.
+
+* `apl_enabled` - Enables the App Platform Layer
+
+* `subnet_id` - The ID of the VPC subnet to use for the Kubernetes cluster. This subnet must be dual stack (IPv4 and IPv6 should both be enabled).
+
+* `vpc_id` - The ID of the VPC to use for the Kubernetes cluster.
+
+* `stack_type` - The networking stack type of the Kubernetes cluster.
+
+* `networking` - (Nested Attribute List) The pod network routing mode and network configuration of an LKE Enterprise cluster. **NOTE: This field may not be available to all users and is only populated when api_version is set to `v4beta`.**
+
+  * `routing_mode` - The pod network routing mode. (`native`, `vxlan`)
+
+  * `cluster_cidr_ipv4` - The IPv4 pod network CIDR.
+
+  * `node_cidr_mask_size_ipv4` - The IPv4 pod CIDR prefix length assigned to each node.
+
+  * `service_cluster_ip_range_ipv4` - The IPv4 service CIDR.
+
+  * `max_pods` - The maximum number of pods per node.
+
+  * `nodebalancer_backend_prefix_length` - The prefix length reserved from the highest portion of the VPC subnet for NodeBalancer backends.
+
+  * `cluster_cidr_ipv6` - The system-assigned IPv6 pod network CIDR. This is null for IPv4-only clusters.
+
+  * `node_cidr_mask_size_ipv6` - The IPv6 pod CIDR prefix length assigned to each node. This is null for IPv4-only clusters.
+
+  * `service_cluster_ip_range_ipv6` - The system-assigned IPv6 service CIDR. This is null for IPv4-only clusters.
+
+* `pools` - (Nested Attribute List) Node pools associated with this cluster.
+
+  * `id` - The ID of the Node Pool.
+
+  * `label` - The label of the Node Pool.
+
+  * `firewall_id` - The ID of the firewall associated with the Node Pool.
+
+  * `type` - The linode type for all of the nodes in the Node Pool. See all node types [here](https://api.linode.com/v4/linode/types).
+
+  * `count` - The number of nodes in the Node Pool.
+
+  * `disk_encryption` - The disk encryption policy for nodes in this pool.
+
+  * `tags` - An array of tags applied to this object. Tags are case-insensitive and are for organizational purposes only.
+
+  * `tier` - The desired Kubernetes tier. **NOTE: This field may not be available to all users and is only populated when api_version is set to `v4beta`.**
+
+  * `k8s_version` - The k8s version of the nodes in this Node Pool. For LKE enterprise only and may not currently available to all users even under v4beta.
+
+  * `update_strategy` - The strategy for updating the Node Pool k8s version. For LKE enterprise only and may not currently available to all users even under v4beta.
+
+  * `nodes` - (Nested Attribute List) The nodes in the Node Pool.
+
+    * `id` - The ID of the node.
+
+    * `instance_id` - The ID of the underlying Linode instance.
+
+    * `status` - The status of the node. (`ready`, `not_ready`)
+
+  * `autoscaler` - (Nested Attribute List) The configuration options for the autoscaler. This field only contains an autoscaler configuration if autoscaling is enabled on this cluster.
+
+    * `enabled` - Whether autoscaling is enabled for this Node Pool. Defaults to false.
+
+    * `min` - The minimum number of nodes to autoscale to.
+
+    * `max` - The maximum number of nodes to autoscale to.
+
+  * `disks` - (Nested Attribute List) This Node Pool’s custom disk layout.
+
+    * `size` - The size of this custom disk partition in MB.
+
+    * `type` - This custom disk partition’s filesystem type.
+
+  * `taints` - (Read-Only Object Set) Kubernetes taints to add to node pool nodes. Taints help control how pods are scheduled onto nodes, specifically allowing them to repel certain pods. Set elements can't be referenced by index; use a `for` expression or `tolist(...)` to access them.
+
+    * `effect` - The Kubernetes taint effect. The accepted values are `NoSchedule`, `PreferNoSchedule` and `NoExecute`. For the descriptions of these values, see [Kubernetes Taints and Tolerations](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
+
+    * `key` - The Kubernetes taint key.
+
+    * `value` - The Kubernetes taint value.
+
+  * `labels` - Key-value pairs added as labels to nodes in the node pool. Labels help classify your nodes and to easily select subsets of objects.
+
+* `control_plane` - (Nested Attribute List) The settings for the Kubernetes Control Plane.
+
+  * `high_availability` - Whether High Availability is enabled for the cluster Control Plane.
+  
+  * `audit_logs_enabled` - Enables audit logs on the cluster's control plane.
+
+  * `acl` - (Nested Attribute List) The ACL configuration for an LKE cluster's control plane.
+
+    * `enabled` - The default policy. A value of true means a default policy of DENY. A value of false means a default policy of ALLOW.
+
+    * `addresses` - (Nested Attribute List) A list of ip addresses to allow.
+
+      * `ipv4` - A set of individual ipv4 addresses or CIDRs to ALLOW.
+
+      * `ipv6` - A set of individual ipv6 addresses or CIDRs to ALLOW.

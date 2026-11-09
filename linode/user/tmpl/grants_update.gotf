@@ -1,0 +1,29 @@
+{{ define "user_grants_update" }}
+
+# TODO: reuse no image instance template defined in instance
+resource "linode_instance" "foobar" {
+    label = "{{.InstLabel}}"
+
+    type = "g6-nanode-1"
+    region = "us-east"
+    booted = false
+}
+
+resource "linode_user" "test" {
+    username = "{{.Username}}"
+    email = "{{.Email}}"
+    restricted = true
+
+    global_grants {
+        account_access = "read_only"
+        add_linodes = true
+        add_images = true
+    }
+
+    linode_grant {
+        id = linode_instance.foobar.id
+        permissions = "read_write"
+    }
+}
+
+{{ end }}

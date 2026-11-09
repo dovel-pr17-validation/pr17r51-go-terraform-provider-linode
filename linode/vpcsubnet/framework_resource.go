@@ -1,0 +1,335 @@
+package vpcsubnet
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+func NewResource() resource.Resource {
+	return &Resource{
+		BaseResource: helper.NewBaseResource(
+			helper.BaseResourceConfig{
+				Name:   "linode_vpc_subnet",
+				IDType: types.StringType,
+				Schema: &frameworkResourceSchema,
+			},
+		),
+	}
+}
+
+type Resource struct {
+	helper.BaseResource
+}
+
+func (r *Resource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	tflog.Debug(ctx, "Import "+r.Config.Name)
+	helper.ImportStateWithMultipleIDs(
+		ctx,
+		req,
+		resp,
+		[]helper.ImportableID{
+			{
+				Name:          "vpc_id",
+				TypeConverter: helper.IDTypeConverterInt64,
+			},
+			{
+				Name:          "id",
+				TypeConverter: helper.IDTypeConverterString,
+			},
+		})
+}
+
+func (r *Resource) Create(
+	ctx context.Context,
+	req resource.CreateRequest,
+	resp *resource.CreateResponse,
+) {
+	tflog.Debug(ctx, "Read "+r.Config.Name)
+
+	var data ResourceModel
+	client := r.Meta.Client
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ctx = resourcePopulateLogAttributes(ctx, data)
+
+	createOpts := linodego.VPCSubnetCreateOptions{
+		Label: data.Label.ValueString(),
+		IPv4:  data.IPv4.ValueString(),
+	}
+
+	if !data.IPv6.IsNull() {
+		modelIPv6 := make([]ResourceModelIPv6, len(data.IPv6.Elements()))
+
+		resp.Diagnostics.Append(data.IPv6.ElementsAs(ctx, &modelIPv6, true)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		createOpts.IPv6 = helper.MapSlice(
+			modelIPv6,
+			func(m ResourceModelIPv6) linodego.VPCSubnetCreateOptionsIPv6 {
+				return linodego.VPCSubnetCreateOptionsIPv6{
+					Range: m.Range.ValueStringPointer(),
+				}
+			},
+		)
+	}
+
+	vpcId := helper.FrameworkSafeInt64ToInt(data.VPCId.ValueInt64(), &resp.Diagnostics)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Debug(ctx, "client.CreateVPCSubnet(...)", map[string]any{
+		"options": createOpts,
+	})
+	subnet, err := client.CreateVPCSubnet(ctx, createOpts, vpcId)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Failed to create VPC subnet.",
+			err.Error(),
+		)
+		return
+	}
+
+	ipv6Configured := !data.IPv6.IsNull()
+
+	resp.Diagnostics.Append(data.FlattenSubnet(ctx, subnet, true)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// IDs should always be overridden during creation (see #1085)
+	// TODO: Remove when Crossplane empty string ID issue is resolved
+	data.ID = types.StringValue(strconv.Itoa(subnet.ID))
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	if ipv6Configured && subnet.IPv6 == nil {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("ipv6"),
+			"Value Mismatch",
+			"The `ipv6` field was configured but was not found in the API's response. "+
+				"Please ensure the current user has access to the VPC IPv6 feature.",
+		)
+	}
+}
+
+func (r *Resource) Read(
+	ctx context.Context,
+	req resource.ReadRequest,
+	resp *resource.ReadResponse,
+) {
+	tflog.Debug(ctx, "Read "+r.Config.Name)
+
+	client := r.Meta.Client
+	var data ResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ctx = resourcePopulateLogAttributes(ctx, data)
+	if helper.FrameworkAttemptRemoveResourceForEmptyID(ctx, data.ID, resp) {
+		return
+	}
+
+	vpcId := helper.FrameworkSafeInt64ToInt(data.VPCId.ValueInt64(), &resp.Diagnostics)
+	id := helper.FrameworkSafeStringToInt(data.ID.ValueString(), &resp.Diagnostics)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	subnet, err := client.GetVPCSubnet(ctx, vpcId, id)
+	if err != nil {
+		if linodego.IsNotFound(err) {
+			resp.Diagnostics.AddWarning(
+				"VPC subnet does not exist.",
+				fmt.Sprintf(
+					"Removing VPC subnet with ID %v from state because it no longer exists",
+					id,
+				),
+			)
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError(
+			"Unable to refresh the VPC subnet.",
+			err.Error(),
+		)
+		return
+	}
+
+	resp.Diagnostics.Append(data.FlattenSubnet(ctx, subnet, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *Resource) Update(
+	ctx context.Context,
+	req resource.UpdateRequest,
+	resp *resource.UpdateResponse,
+) {
+	tflog.Debug(ctx, "Update "+r.Config.Name)
+
+	var plan, state ResourceModel
+	client := r.Meta.Client
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ctx = resourcePopulateLogAttributes(ctx, state)
+
+	var updateOpts linodego.VPCSubnetUpdateOptions
+	shouldUpdate := false
+
+	if !state.Label.Equal(plan.Label) {
+		updateOpts.Label = plan.Label.ValueString()
+		shouldUpdate = true
+	}
+
+	if shouldUpdate {
+		vpcId := helper.FrameworkSafeInt64ToInt(
+			plan.VPCId.ValueInt64(),
+			&resp.Diagnostics,
+		)
+		id := helper.FrameworkSafeStringToInt(plan.ID.ValueString(), &resp.Diagnostics)
+
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		tflog.Debug(ctx, "client.UpdateVPCSubnet(...)", map[string]any{
+			"options": updateOpts,
+		})
+		subnet, err := client.UpdateVPCSubnet(ctx, vpcId, id, updateOpts)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				fmt.Sprintf("Failed to update VPC subnet (%d).", id),
+				err.Error(),
+			)
+			return
+		}
+		resp.Diagnostics.Append(plan.FlattenSubnet(ctx, subnet, true)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+	plan.CopyFrom(state, true)
+
+	// Workaround for Crossplane issue where ID is not
+	// properly populated in plan
+	// See TPT-2865 for more details
+	if plan.ID.ValueString() == "" {
+		plan.ID = state.ID
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *Resource) Delete(
+	ctx context.Context,
+	req resource.DeleteRequest,
+	resp *resource.DeleteResponse,
+) {
+	tflog.Debug(ctx, "Delete "+r.Config.Name)
+
+	var data ResourceModel
+	client := r.Meta.Client
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ctx = resourcePopulateLogAttributes(ctx, data)
+
+	vpcId := helper.FrameworkSafeInt64ToInt(data.VPCId.ValueInt64(), &resp.Diagnostics)
+	id := helper.FrameworkSafeStringToInt(data.ID.ValueString(), &resp.Diagnostics)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// This is necessary because database deletion propagation can often take a while,
+	// leading to errors during destruction.
+	shouldRetryOn400s, err := shouldRetryOn400sForDatabasePropagation(ctx, client, vpcId, id)
+	if err != nil {
+		if linodego.IsNotFound(err) {
+			// This subnet is already gone - nothing to do here
+			return
+		}
+
+		resp.Diagnostics.AddError(
+			"Failed to verify database propagation",
+			err.Error(),
+		)
+		return
+	}
+
+	err = helper.WithRetries(
+		ctx,
+		64,
+		time.Second*10,
+		func() (bool, error) {
+			tflog.Debug(ctx, "client.DeleteVPCSubnet(...)")
+			err := client.DeleteVPCSubnet(ctx, vpcId, id)
+			if err != nil {
+				if linodego.IsNotFound(err) {
+					// This is an acceptable case
+					return false, nil
+				}
+
+				if shouldRetryOn400s && linodego.ErrHasStatus(err, 400) {
+					// Something is likely still propagating
+					return true, err
+				}
+
+				return false, err
+			}
+
+			return false, nil
+		},
+	)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Failed to delete the VPC subnet",
+			err.Error(),
+		)
+		return
+	}
+}
+
+func resourcePopulateLogAttributes(ctx context.Context, data ResourceModel) context.Context {
+	return helper.SetLogFieldBulk(ctx, map[string]any{
+		"vpc_id": data.VPCId.ValueInt64(),
+		"id":     data.ID.ValueString(),
+	})
+}

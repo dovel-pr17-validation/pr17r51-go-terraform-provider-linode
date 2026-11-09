@@ -1,0 +1,213 @@
+//go:build integration || vpc
+
+package vpc_test
+
+import (
+	"log"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/vpc/tmpl"
+)
+
+func TestAccDataSourceVPC_basic(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc.foo"
+	vpcLabel := acctest.RandomWithPrefix("tf-test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataBasic(t, vpcLabel, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "label", vpcLabel),
+					resource.TestCheckResourceAttrSet(resourceName, "description"),
+					resource.TestCheckResourceAttrSet(resourceName, "region"),
+					resource.TestCheckResourceAttrSet(resourceName, "created"),
+					resource.TestCheckResourceAttrSet(resourceName, "updated"),
+				),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets"),
+						knownvalue.ListSizeExact(0),
+					),
+				},
+			},
+		},
+	})
+}
+
+func TestAccDataSourceVPC_withSubnet(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc.foo"
+	vpcLabel := acctest.RandomWithPrefix("tf-test")
+	subnetIPv4 := "10.0.1.0/24"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataWithSubnet(t, vpcLabel, testRegion, subnetIPv4),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("label"),
+						knownvalue.StringExact(vpcLabel),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets"),
+						knownvalue.ListSizeExact(1),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets").AtSliceIndex(0).AtMapKey("id"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets").AtSliceIndex(0).AtMapKey("label"),
+						knownvalue.StringExact(vpcLabel),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets").AtSliceIndex(0).AtMapKey("ipv4"),
+						knownvalue.StringExact(subnetIPv4),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets").AtSliceIndex(0).AtMapKey("created"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("subnets").AtSliceIndex(0).AtMapKey("updated"),
+						knownvalue.NotNull(),
+					),
+				},
+			},
+		},
+	})
+}
+
+func TestAccDataSourceVPC_dualStack(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc.foo"
+	vpcLabel := acctest.RandomWithPrefix("tf-test")
+
+	targetRegion, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{
+		linodego.CapabilityVPCs,
+		linodego.CapabilityVPCDualStack,
+	}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataDualStack(t, vpcLabel, targetRegion),
+				// ... existing code ...
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("label"),
+						knownvalue.StringExact(vpcLabel),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("description"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("region"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("created"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("updated"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv6"),
+						knownvalue.ListSizeExact(1),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv6").AtSliceIndex(0).AtMapKey("range"),
+						knownvalue.NotNull(),
+					),
+				},
+			},
+		},
+	})
+}
+
+func TestAccDataSourceVPC_ipv4(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc.foo"
+	vpcLabel := acctest.RandomWithPrefix("tf-test")
+
+	targetRegion, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{
+		linodego.CapabilityVPCs,
+		linodego.CapabilityVPCCustomIPv4Ranges,
+	}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataIPv4(t, vpcLabel, targetRegion, "10.0.0.0/8"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("label"),
+						knownvalue.StringExact(vpcLabel),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("region"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv4"),
+						knownvalue.ListSizeExact(1),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv4").AtSliceIndex(0).AtMapKey("range"),
+						knownvalue.StringExact("10.0.0.0/8"),
+					),
+				},
+			},
+		},
+	})
+}

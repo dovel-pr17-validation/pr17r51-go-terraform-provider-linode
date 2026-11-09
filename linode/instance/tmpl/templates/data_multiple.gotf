@@ -1,0 +1,16 @@
+{{ define "instance_data_multiple" }}
+
+{{ template "instance_data_multiple_base" . }}
+
+data "linode_instances" "foobar" {
+    depends_on = [
+        linode_instance.foobar,
+    ]
+
+    filter {
+        name = "tags"
+        values = ["{{ .Tag }}"]
+    }
+}
+
+{{ end }}

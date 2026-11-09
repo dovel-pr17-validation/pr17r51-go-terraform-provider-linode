@@ -1,0 +1,63 @@
+{{ define "nodepool_template" }}
+
+{{ if not .ClusterID }}
+resource "linode_lke_cluster" "nodepool_test_cluster" {
+  label       = "{{.ClusterLabel}}"
+  region      = "{{ .Region }}"
+  k8s_version = "{{.K8sVersion}}"
+  tags        = ["nodepool_test_cluster"]
+  external_pool_tags  = ["external"]
+
+  pool {
+      type  = "g6-standard-1"
+      count = 1
+  }
+}
+{{ end }}
+
+resource "linode_lke_node_pool" "foobar" {
+{{ if .ClusterID }}
+    cluster_id = "{{.ClusterID}}"
+{{ else }}
+    cluster_id = linode_lke_cluster.nodepool_test_cluster.id
+{{ end }}
+
+{{ if gt .NodeCount 0}}
+    node_count = {{ .NodeCount }}
+{{ end }}
+
+{{ if .AutoscalerEnabled }}
+    autoscaler {
+        min = {{.AutoscalerMin}}
+        max = {{.AutoscalerMax}}
+    }
+{{ end }}
+
+{{ range $taint := .Taints }}
+    taint {
+        effect = "{{ $taint.Effect }}"
+        key    = "{{ $taint.Key }}"
+        value  = "{{ $taint.Value }}"
+    }
+{{ end }}
+
+{{ range $key, $val := .Labels }}
+    labels = {
+        "{{ $key }}" = "{{ $val }}"
+    }
+{{ end }}
+
+    {{ if .PoolNodeType }}
+    type  = "{{ .PoolNodeType }}"
+    {{ else }}
+    type  = "g6-standard-1"
+    {{ end }}
+
+    tags  = ["external", "{{.PoolTag}}"]
+
+{{ if .DiskEncryption }}
+    disk_encryption = "{{ .DiskEncryption }}"
+{{ end }}
+}
+
+{{ end }}

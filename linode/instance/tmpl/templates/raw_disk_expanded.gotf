@@ -1,0 +1,17 @@
+{{ define "instance_raw_disk_expanded" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-standard-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "disk"
+        size = 6000
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

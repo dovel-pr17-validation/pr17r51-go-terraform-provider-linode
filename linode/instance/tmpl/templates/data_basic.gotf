@@ -1,0 +1,40 @@
+{{ define "instance_data_basic" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    tags = ["cool", "cooler"]
+    type = "g6-nanode-1"
+    image = "{{.Image}}"
+    region = "{{ .Region }}"
+    maintenance_policy = "{{ .MaintenancePolicy }}"
+    root_pass = "{{ .RootPass }}"
+    swap_size = 256
+    private_ip = true
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+data "linode_instances" "foobar" {
+    filter {
+        name = "id"
+        values = [linode_instance.foobar.id]
+    }
+
+    filter {
+        name = "label"
+        values = [linode_instance.foobar.label, "other-label"]
+    }
+
+    filter {
+        name = "region"
+        values = [linode_instance.foobar.region]
+    }
+
+    filter {
+        name = "tags"
+        values = linode_instance.foobar.tags
+    }
+}
+
+{{ end }}

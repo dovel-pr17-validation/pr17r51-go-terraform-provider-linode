@@ -1,0 +1,24 @@
+{{ define "object_key_limited" }}
+
+resource "linode_object_storage_bucket" "foobar" {
+    region = "{{ .Region }}"
+    label = "{{ .Label }}-bucket"
+}
+resource "linode_object_storage_key" "foobar" {
+    label = "{{ .Label }}_key"
+    bucket_access {
+        bucket_name = "{{ .Label }}-bucket"
+        region = "{{ .Region }}"
+        permissions = "read_only"
+    }
+    bucket_access {
+        bucket_name = linode_object_storage_bucket.foobar.label
+        region = linode_object_storage_bucket.foobar.region
+        permissions = "read_write"
+    }
+    {{if .Region }}
+    regions = [ "{{ .Region }}" ]
+    {{ end }}
+}
+
+{{ end }}

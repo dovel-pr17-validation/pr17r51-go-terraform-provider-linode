@@ -1,0 +1,28 @@
+{{ define "lke_cluster_autoscaler_many_pools" }}
+
+resource "linode_lke_cluster" "test" {
+    label       = "{{ .Label }}"
+    region      = "{{ .Region }}"
+    k8s_version = "{{ .K8sVersion }}"
+    tags        = ["test"]
+    tier = "standard"
+
+    pool {
+        autoscaler {
+            min = 3
+            max = 8
+        }
+        type  = "g6-standard-1"
+        count = 5
+    }
+    pool {
+        autoscaler {
+            min = 1
+            max = 8
+        }
+        type  = "g6-standard-1"
+        count = 3
+    }
+}
+
+{{ end }}

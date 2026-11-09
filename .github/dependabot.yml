@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # NOTE: We redefine these entries for each branch because of the following dependabot issues:
+  # * target-branch cannot be an array: https://github.com/dependabot/dependabot-core/issues/2511
+  # * target-branch cannot be a wildcard: https://github.com/dependabot/dependabot-core/issues/6890
+  # * YAML aliases are unsupported: https://github.com/dependabot/dependabot-core/issues/1582
+
+  # dev
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "github.com/linode/terraform-provider-linode/linode"
+  - package-ecosystem: "gomod"
+    directory: "/tools"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

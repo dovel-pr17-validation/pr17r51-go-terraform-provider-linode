@@ -1,0 +1,149 @@
+//go:build integration || vpcsubnet
+
+package vpcsubnet_test
+
+import (
+	"log"
+	"testing"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/vpcsubnet/tmpl"
+)
+
+func TestAccDataSourceVPCSubnet_basic(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc_subnet.foo"
+	subnetLabel := acctest.RandomWithPrefix("tf-test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataBasic(t, subnetLabel, "10.0.0.0/24", testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "label"),
+					resource.TestCheckResourceAttrSet(resourceName, "ipv4"),
+					resource.TestCheckResourceAttrSet(resourceName, "created"),
+					resource.TestCheckResourceAttrSet(resourceName, "updated"),
+
+					resource.TestCheckResourceAttr(resourceName, "linodes.#", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "linodes.0.id"),
+					resource.TestCheckResourceAttr(resourceName, "linodes.0.interfaces.#", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "linodes.0.interfaces.0.id"),
+					resource.TestCheckResourceAttr(resourceName, "linodes.0.interfaces.0.active", "false"),
+
+					resource.TestCheckResourceAttr(resourceName, "databases.#", "0"),
+					resource.TestCheckResourceAttr(resourceName, "nodebalancers.#", "0"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccDataSourceVPCSubnet_dualStack(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc_subnet.foo"
+	subnetLabel := acctest.RandomWithPrefix("tf-test")
+
+	targetRegion, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{
+		linodego.CapabilityVPCs,
+		linodego.CapabilityVPCDualStack,
+	}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataDualStack(t, subnetLabel, "10.0.0.0/24", targetRegion),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("label"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv4"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("created"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("updated"),
+						knownvalue.NotNull(),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv6"),
+						knownvalue.ListSizeExact(1),
+					),
+					statecheck.ExpectKnownValue(
+						resourceName,
+						tfjsonpath.New("ipv6").AtSliceIndex(0).AtMapKey("range"),
+						knownvalue.NotNull(),
+					),
+				},
+			},
+		},
+	})
+}
+
+func TestAccDataSourceVPCSubnet_nodebalancer(t *testing.T) {
+	t.Parallel()
+
+	resourceName := "data.linode_vpc_subnet.foo"
+	subnetLabel := acctest.RandomWithPrefix("tf-test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Wait for NB to be created and visible via API
+			{
+				Config: tmpl.DataNodeBalancer(t, subnetLabel, "10.0.0.0/24", testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					waitForVPCSubnetNodebalancer(resourceName, 1, 60*time.Second),
+				),
+			},
+			// Retrieve and assert NB using data source
+			{
+				Config: tmpl.DataNodeBalancer(t, subnetLabel, "10.0.0.0/24", testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "label"),
+					resource.TestCheckResourceAttrSet(resourceName, "ipv4"),
+					resource.TestCheckResourceAttrSet(resourceName, "created"),
+					resource.TestCheckResourceAttrSet(resourceName, "updated"),
+
+					resource.TestCheckResourceAttr(resourceName, "linodes.#", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "linodes.0.id"),
+					resource.TestCheckResourceAttr(resourceName, "linodes.0.interfaces.#", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "linodes.0.interfaces.0.id"),
+					resource.TestCheckResourceAttr(resourceName, "linodes.0.interfaces.0.active", "false"),
+
+					resource.TestCheckResourceAttr(resourceName, "databases.#", "0"),
+					resource.TestCheckResourceAttr(resourceName, "nodebalancers.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "nodebalancers.0.ipv4_range", "10.0.0.4/30"),
+					resource.TestCheckResourceAttrSet(resourceName, "nodebalancers.0.id"),
+				),
+			},
+		},
+	})
+}

@@ -1,0 +1,138 @@
+package databases
+
+import (
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/databaseshared"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/frameworkfilter"
+)
+
+var filterConfig = frameworkfilter.Config{
+	"label":   {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+	"region":  {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+	"status":  {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+	"type":    {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+	"version": {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+
+	"engine":         {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"allow_list":     {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"cluster_size":   {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeInt},
+	"created":        {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"encrypted":      {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeBool},
+	"host_primary":   {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"host_secondary": {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"host_standby":   {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"id":             {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeInt},
+	"instance_uri":   {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"platform":       {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"updated":        {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+}
+
+var frameworkDataSourceSchema = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"id": schema.StringAttribute{
+			Description: "The data source's unique ID.",
+			Computed:    true,
+		},
+		"order_by": filterConfig.OrderBySchema(),
+		"order":    filterConfig.OrderSchema(),
+		"databases": schema.ListNestedAttribute{
+			Description: "The returned list of databases.",
+			Computed:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"id": schema.Int64Attribute{
+						Description: "A unique ID that can be used to identify and reference the Managed Database.",
+						Computed:    true,
+					},
+					"allow_list": schema.SetAttribute{
+						Description: "A list of IP addresses that can access the Managed Database. " +
+							"Each item can be a single IP address or a range in CIDR format.",
+						Computed:    true,
+						ElementType: types.StringType,
+					},
+					"cluster_size": schema.Int64Attribute{
+						Description: "The number of Linode Instance nodes deployed to the Managed Database.",
+						Computed:    true,
+					},
+					"fork_restore_time": schema.StringAttribute{
+						Description: "The database timestamp from which it was restored.",
+						Computed:    true,
+						CustomType:  timetypes.RFC3339Type{},
+					},
+					"fork_source": schema.Int64Attribute{
+						Description: "The ID of the database that was forked from.",
+						Computed:    true,
+					},
+					"oldest_restore_time": schema.StringAttribute{
+						Description: "The oldest time to which a database can be restored.",
+						Computed:    true,
+						CustomType:  timetypes.RFC3339Type{},
+					},
+					"created": schema.StringAttribute{
+						Description: "When this Managed Database was created.",
+						Computed:    true,
+					},
+					"encrypted": schema.BoolAttribute{
+						Description: "Whether the Managed Databases is encrypted.",
+						Computed:    true,
+					},
+					"engine": schema.StringAttribute{
+						Description: "The Managed Database engine type.",
+						Computed:    true,
+					},
+					"host_primary": schema.StringAttribute{
+						Description: "The primary host for the Managed Database.",
+						Computed:    true,
+					},
+					"host_secondary": schema.StringAttribute{
+						Description:        "The secondary/private host for the Managed Database.",
+						Computed:           true,
+						DeprecationMessage: "Use host_standby instead.",
+					},
+					"host_standby": schema.StringAttribute{
+						Description: "The standby host for the Managed Database.",
+						Computed:    true,
+					},
+					"instance_uri": schema.StringAttribute{
+						Description: "The API route for the database instance.",
+						Computed:    true,
+					},
+					"label": schema.StringAttribute{
+						Description: "A unique, user-defined string referring to the Managed Database.",
+						Computed:    true,
+					},
+					"platform": schema.StringAttribute{
+						Description: "The back-end platform for relational databases used by the service.",
+						Computed:    true,
+					},
+					"private_network": databaseshared.DataSourceAttributePrivateNetwork,
+					"region": schema.StringAttribute{
+						Description: "The Region ID for the Managed Database.",
+						Computed:    true,
+					},
+					"status": schema.StringAttribute{
+						Description: "The operating status of the Managed Database.",
+						Computed:    true,
+					},
+					"type": schema.StringAttribute{
+						Description: "The Linode Instance type used by the Managed Database for its nodes.",
+						Computed:    true,
+					},
+					"updated": schema.StringAttribute{
+						Description: "When this Managed Database was last updated.",
+						Computed:    true,
+					},
+					"version": schema.StringAttribute{
+						Description: "The Managed Database engine version.",
+						Computed:    true,
+					},
+				},
+			},
+		},
+	},
+	Blocks: map[string]schema.Block{
+		"filter": filterConfig.Schema(),
+	},
+}

@@ -1,0 +1,55 @@
+{{ define "instance_disk_config_multiple" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+
+    disk {
+        label = "diska"
+        image = "{{.Image}}"
+        root_pass = "{{ .RootPass }}"
+        authorized_keys = ["{{.PubKey}}"]
+        size = 3000
+    }
+
+    disk {
+        label = "diskb"
+        filesystem = "swap"
+        size = 512
+    }
+
+    config {
+        label = "configa"
+        kernel = "linode/latest-64bit"
+        devices {
+            sda {
+                disk_label = "diska"
+            }
+            sdb {
+                disk_label = "diskb"
+            }
+        }
+    }
+
+    config {
+        label = "configb"
+        comments = "won't boot"
+        kernel = "linode/grub2"
+        devices {
+            sda {
+                disk_label = "diskb"
+            }
+            sdb {
+                disk_label = "diska"
+            }
+        }
+    }
+
+    boot_config_label = "configa"
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

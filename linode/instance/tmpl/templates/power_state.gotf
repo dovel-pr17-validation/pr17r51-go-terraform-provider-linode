@@ -1,0 +1,22 @@
+{{ define "instance_boot_state" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    image = "{{.Image}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    root_pass = "{{ .RootPass }}"
+    booted = {{.Booted}}
+
+    interface {
+        purpose = "vlan"
+        label = "cool"
+        ipam_address = "10.0.0.3/24"
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

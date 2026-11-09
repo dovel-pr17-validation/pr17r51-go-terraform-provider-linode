@@ -1,0 +1,33 @@
+package vpcs
+
+import (
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/frameworkfilter"
+	"github.com/linode/terraform-provider-linode/v4/linode/vpc"
+)
+
+var filterConfig = frameworkfilter.Config{
+	"id":          {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeInt},
+	"label":       {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"description": {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+	"region":      {APIFilterable: false, TypeFunc: frameworkfilter.FilterTypeString},
+}
+
+var frameworkDataSourceSchema = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"id": schema.StringAttribute{
+			Description: "The data source's unique ID.",
+			Computed:    true,
+		},
+		"vpcs": schema.ListNestedAttribute{
+			Description: "The returned list of VPCs.",
+			Computed:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: vpc.VPCAttrs,
+			},
+		},
+	},
+	Blocks: map[string]schema.Block{
+		"filter": filterConfig.Schema(),
+	},
+}

@@ -1,0 +1,410 @@
+//go:build integration || instancedisk
+
+package instancedisk_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"regexp"
+	"strconv"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	"github.com/linode/terraform-provider-linode/v4/linode/instancedisk/tmpl"
+)
+
+var testRegion string
+
+func init() {
+	region, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{linodego.CapabilityLinodes}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	testRegion = region
+}
+
+func TestSmokeTests_instancedisk(t *testing.T) {
+	tests := []struct {
+		name string
+		test func(*testing.T)
+	}{
+		{"TestAccResourceInstanceDisk_basic_smoke", TestAccResourceInstanceDisk_basic_smoke},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, tt.test)
+	}
+}
+
+func TestAccResourceInstanceDisk_basic_smoke(t *testing.T) {
+	t.Parallel()
+
+	resName := "linode_instance_disk.foobar"
+	label := acctest.RandomWithPrefix("tf_test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.Basic(t, label, testRegion, 2048),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2048"),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+
+					resource.TestCheckResourceAttrPair(
+						resName, "disk_encryption",
+						"linode_instance.foobar", "disk_encryption",
+					),
+				),
+			},
+			// Resize up
+			{
+				Config: tmpl.Basic(t, label, testRegion, 2049),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2049"),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+			// Resize down
+			{
+				Config: tmpl.Basic(t, label, testRegion, 2047),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2047"),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+			{
+				ResourceName:      resName,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: resourceImportStateID,
+			},
+		},
+	})
+}
+
+func TestAccResourceInstanceDisk_complex(t *testing.T) {
+	t.Parallel()
+
+	resName := "linode_instance_disk.foobar"
+	label := acctest.RandomWithPrefix("tf_test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.Complex(t, label, testRegion, 2048),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2048"),
+					resource.TestCheckResourceAttr(resName, "filesystem", "ext4"),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+			{
+				ResourceName:      resName,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: resourceImportStateID,
+			},
+		},
+	})
+}
+
+func TestAccResourceInstanceDisk_bootedResize(t *testing.T) {
+	t.Parallel()
+
+	resName := "linode_instance_disk.foobar"
+	label := acctest.RandomWithPrefix("tf_test")
+	initialImage := "linode/debian12"
+	replacementImage := "linode/debian13"
+	rootPass := acctest.RandString(64)
+
+	var instance linodego.Instance
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.BootedResizeWithImage(t, label, testRegion, 2048, initialImage, rootPass),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2048"),
+					resource.TestCheckResourceAttr(resName, "image", initialImage),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+			// Resize up
+			{
+				Config: tmpl.BootedResizeWithImage(t, label, testRegion, 2049, initialImage, rootPass),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					acceptance.CheckInstanceExists("linode_instance.foobar", &instance),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2049"),
+					resource.TestCheckResourceAttr(resName, "image", initialImage),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+			{
+				PreConfig: func() {
+					if instance.Status != linodego.InstanceRunning {
+						t.Fatalf("expected instance to be running, found %s", instance.Status)
+					}
+				},
+				Config: tmpl.BootedResizeWithImage(t, label, testRegion, 2049, initialImage, rootPass),
+			},
+			{
+				ResourceName:            resName,
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateIdFunc:       resourceImportStateID,
+				ImportStateVerifyIgnore: []string{"image", "root_pass"},
+			},
+			{
+				PreConfig: func() {
+					if instance.Status != linodego.InstanceRunning {
+						t.Fatalf("expected instance to be running before image replacement, found %s", instance.Status)
+					}
+				},
+				Config: tmpl.BootedResizeWithImage(t, label, testRegion, 2049, replacementImage, rootPass),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2049"),
+					resource.TestCheckResourceAttr(resName, "image", replacementImage),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+					resource.TestCheckResourceAttrSet(resName, "linode_id"),
+				),
+			},
+		},
+	})
+}
+
+func checkExists(name string, disk *linodego.InstanceDisk) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		client := acceptance.TestAccSDKv2Provider.Meta().(*helper.ProviderMeta).Client
+
+		rs, ok := s.RootModule().Resources[name]
+		if !ok {
+			return fmt.Errorf("Not found: %s", name)
+		}
+
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("No ID is set")
+		}
+
+		linodeID, id, err := getResourceIDs(rs)
+		if err != nil {
+			return fmt.Errorf("failed to get disk info: %v", err)
+		}
+
+		found, err := client.GetInstanceDisk(context.Background(), linodeID, id)
+		if err != nil {
+			return fmt.Errorf("error retrieving state of disk %s: %s", rs.Primary.Attributes["label"], err)
+		}
+
+		if disk != nil {
+			*disk = *found
+		}
+
+		return nil
+	}
+}
+
+func checkDestroy(s *terraform.State) error {
+	client := acceptance.TestAccSDKv2Provider.Meta().(*helper.ProviderMeta).Client
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "linode_instance_disk" {
+			continue
+		}
+
+		linodeID, id, err := getResourceIDs(rs)
+		if err != nil {
+			return fmt.Errorf("failed to get disk info: %v", err)
+		}
+
+		_, err = client.GetInstanceDisk(context.Background(), linodeID, id)
+
+		if err == nil {
+			return fmt.Errorf("disk with id %d still exists", id)
+		}
+
+		if apiErr, ok := err.(*linodego.Error); ok && apiErr.Code != 404 {
+			return fmt.Errorf("error requesting disk with id %d", id)
+		}
+	}
+
+	return nil
+}
+
+func getResourceIDs(rs *terraform.ResourceState) (int, int, error) {
+	id, err := strconv.Atoi(rs.Primary.ID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	linodeID, err := strconv.Atoi(rs.Primary.Attributes["linode_id"])
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return linodeID, id, nil
+}
+
+func resourceImportStateID(s *terraform.State) (string, error) {
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "linode_instance_disk" {
+			continue
+		}
+
+		linodeID, id, err := getResourceIDs(rs)
+		if err != nil {
+			return "", fmt.Errorf("failed to get disk info: %v", err)
+		}
+
+		return fmt.Sprintf("%d,%d", linodeID, id), nil
+	}
+
+	return "", fmt.Errorf("Error finding linode_instance_disk")
+}
+
+func TestAccResourceInstanceDisk_imageAuthKeysOnly(t *testing.T) {
+	t.Parallel()
+
+	resName := "linode_instance_disk.foobar"
+	label := acctest.RandomWithPrefix("tf_test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.ImageAuthKeysOnly(t, label, testRegion, 2048),
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+					resource.TestCheckResourceAttr(resName, "label", label),
+					resource.TestCheckResourceAttr(resName, "size", "2048"),
+					resource.TestCheckResourceAttr(resName, "status", "ready"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceInstanceDisk_imageNoAuth(t *testing.T) {
+	t.Parallel()
+
+	label := acctest.RandomWithPrefix("tf_test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config:      tmpl.ImageNoAuth(t, label, testRegion, 2048),
+				ExpectError: regexp.MustCompile("Insufficient Authentication"),
+			},
+		},
+	})
+}
+
+func TestAccResourceInstanceDisk_swapNoImage(t *testing.T) {
+	t.Parallel()
+
+	resName := "linode_instance_disk.swap"
+	label := acctest.RandomWithPrefix("tf_test")
+	rootPass := acctest.RandString(64)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		CheckDestroy:             checkDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.Swap(t, label, testRegion, 512, rootPass),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("label"),
+						knownvalue.StringExact(label+"-swap"),
+					),
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("size"),
+						knownvalue.Int64Exact(512),
+					),
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("filesystem"),
+						knownvalue.StringExact("swap"),
+					),
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("status"),
+						knownvalue.StringExact("ready"),
+					),
+					// Most importantly: image should be null for swap disks
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("image"),
+						knownvalue.Null(),
+					),
+					statecheck.ExpectKnownValue(
+						resName,
+						tfjsonpath.New("linode_id"),
+						knownvalue.NotNull(),
+					),
+				},
+				Check: resource.ComposeTestCheckFunc(
+					checkExists(resName, nil),
+				),
+			},
+			{
+				ResourceName:      resName,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: resourceImportStateID,
+				// Swap disks don't have image/root_pass attributes
+				ImportStateVerifyIgnore: []string{"image", "root_pass"},
+			},
+		},
+	})
+}

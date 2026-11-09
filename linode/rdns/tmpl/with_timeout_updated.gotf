@@ -1,0 +1,25 @@
+{{ define "rdns_with_timeout_updated" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+    image = "linode/arch"
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    root_pass = "{{ .RootPass }}"
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+resource "linode_rdns" "foobar" {
+    address = "${linode_instance.foobar.ip_address}"
+    rdns    = "${replace(linode_instance.foobar.ip_address, ".", "-")}.nip.io"
+    wait_for_available = true
+
+    timeouts {
+        create = "{{ .CreateTimeout }}"
+        update = "{{ .UpdateTimeout }}"
+    }
+}
+
+{{ end }}

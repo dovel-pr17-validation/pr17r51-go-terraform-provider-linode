@@ -1,0 +1,303 @@
+package domain
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strconv"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	linodediffs "github.com/linode/terraform-provider-linode/v4/linode/helper/customdiffs"
+)
+
+func Resource() *schema.Resource {
+	return &schema.Resource{
+		Schema:        resourceSchema,
+		ReadContext:   readResource,
+		CreateContext: createResource,
+		UpdateContext: updateResource,
+		DeleteContext: deleteResource,
+		CustomizeDiff: customdiff.All(
+			linodediffs.ComputedWithDefault("tags", []string{}),
+			linodediffs.CaseInsensitiveSet("tags"),
+		),
+		Importer: &schema.ResourceImporter{
+			StateContext: schema.ImportStatePassthroughContext,
+		},
+	}
+}
+
+const (
+	// domainReadNotFoundDeadline is the maximum amount of time a domain GET
+	// request will be retried for when the API returns a 404. This works around
+	// eventual consistency in the API where a recently created domain may not
+	// immediately be returned.
+	domainReadNotFoundDeadline = 15 * time.Second
+
+	// domainReadNotFoundInitialBackoff is the delay before the first retry.
+	domainReadNotFoundInitialBackoff = 500 * time.Millisecond
+
+	// domainReadNotFoundMaxBackoff caps the exponential backoff between retries.
+	domainReadNotFoundMaxBackoff = 4 * time.Second
+)
+
+// getDomainWithRetries wraps client.GetDomain(...), retrying with a short
+// exponential backoff and deadline when the API returns a 404.
+func getDomainWithRetries(
+	ctx context.Context,
+	client linodego.Client,
+	id int,
+	timeout, initialBackoff, maxBackoff time.Duration,
+) (*linodego.Domain, error) {
+	deadline := time.Now().Add(timeout)
+	backoff := initialBackoff
+
+	for {
+		domain, err := client.GetDomain(ctx, id)
+		if err == nil || !linodego.IsNotFound(err) {
+			return domain, err
+		}
+
+		// Don't sleep past the deadline, return the last 404 instead.
+		if !time.Now().Add(backoff).Before(deadline) {
+			return nil, err
+		}
+
+		tflog.Debug(ctx, "Linode Domain not found, retrying...", map[string]any{
+			"id":      id,
+			"backoff": backoff.String(),
+		})
+
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(backoff):
+		}
+
+		backoff = min(backoff*2, maxBackoff)
+	}
+}
+
+func readResource(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	ctx = populateLogAttributes(ctx, d)
+	tflog.Debug(ctx, "Read linode_domain")
+
+	client := meta.(*helper.ProviderMeta).Client
+	id, err := strconv.Atoi(d.Id())
+	if err != nil {
+		return diag.Errorf("Error parsing Linode Domain ID %s as int: %s", d.Id(), err)
+	}
+
+	domain, err := getDomainWithRetries(
+		ctx,
+		client,
+		id,
+		domainReadNotFoundDeadline,
+		domainReadNotFoundInitialBackoff,
+		domainReadNotFoundMaxBackoff,
+	)
+	if err != nil {
+		if linodego.IsNotFound(err) {
+			log.Printf("[WARN] removing Linode Domain ID %q from state because it no longer exists", d.Id())
+			d.SetId("")
+			return nil
+		}
+		return diag.Errorf("Error finding the specified Linode Domain: %s", err)
+	}
+
+	if err := d.Set("domain", domain.Domain); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set domain: %w", err))
+	}
+	if err := d.Set("type", domain.Type); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set type: %w", err))
+	}
+	if err := d.Set("status", domain.Status); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set status: %w", err))
+	}
+	if err := d.Set("description", domain.Description); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set description: %w", err))
+	}
+	if err := d.Set("master_ips", domain.MasterIPs); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set master_ips: %w", err))
+	}
+	if err := d.Set("axfr_ips", domain.AXfrIPs); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set axfr_ips: %w", err))
+	}
+	if err := d.Set("ttl_sec", domain.TTLSec); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set ttl_sec: %w", err))
+	}
+	if err := d.Set("retry_sec", domain.RetrySec); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set retry_sec: %w", err))
+	}
+	if err := d.Set("expire_sec", domain.ExpireSec); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set expire_sec: %w", err))
+	}
+	if err := d.Set("refresh_sec", domain.RefreshSec); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set refresh_sec: %w", err))
+	}
+	if err := d.Set("soa_email", domain.SOAEmail); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set soa_email: %w", err))
+	}
+	if err := d.Set("tags", domain.Tags); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to set tags: %w", err))
+	}
+
+	return nil
+}
+
+func createResource(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	tflog.Debug(ctx, "Create linode_domain")
+
+	client := meta.(*helper.ProviderMeta).Client
+
+	createOpts := linodego.DomainCreateOptions{
+		Domain:      d.Get("domain").(string),
+		Type:        linodego.DomainType(d.Get("type").(string)),
+		Description: d.Get("description").(string),
+		SOAEmail:    d.Get("soa_email").(string),
+		RetrySec:    d.Get("retry_sec").(int),
+		ExpireSec:   d.Get("expire_sec").(int),
+		RefreshSec:  d.Get("refresh_sec").(int),
+		TTLSec:      d.Get("ttl_sec").(int),
+	}
+
+	if tagsRaw, tagsOk := d.GetOk("tags"); tagsOk {
+		for _, tag := range tagsRaw.(*schema.Set).List() {
+			createOpts.Tags = append(createOpts.Tags, tag.(string))
+		}
+	}
+
+	if v, ok := d.GetOk("master_ips"); ok {
+		v := v.(*schema.Set).List()
+
+		createOpts.MasterIPs = make([]string, len(v))
+		for i, ip := range v {
+			createOpts.MasterIPs[i] = ip.(string)
+		}
+	}
+
+	if v, ok := d.GetOk("axfr_ips"); ok {
+		v := v.(*schema.Set).List()
+
+		createOpts.AXfrIPs = make([]string, len(v))
+		for i, ip := range v {
+			createOpts.AXfrIPs[i] = ip.(string)
+		}
+	}
+
+	tflog.Debug(ctx, "client.CreateDomain(...)", map[string]any{
+		"options": createOpts,
+	})
+
+	domain, err := client.CreateDomain(ctx, createOpts)
+	if err != nil {
+		return diag.Errorf("Error creating a Linode Domain: %s", err)
+	}
+	d.SetId(fmt.Sprintf("%d", domain.ID))
+
+	ctx = populateLogAttributes(ctx, d)
+
+	// Wait for new domain to become visible before reading
+	err = helper.WithRetries(ctx, 10, 2*time.Second, func() (bool, error) {
+		_, err := client.GetDomain(ctx, domain.ID)
+		if err != nil {
+			// The domain may not be immediately visible after creation
+			return linodego.IsNotFound(err), err
+		}
+		return false, nil
+	})
+	if err != nil {
+		return diag.Errorf("Error waiting for Linode Domain %d to become visible: %s", domain.ID, err)
+	}
+
+	return readResource(ctx, d, meta)
+}
+
+func updateResource(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	ctx = populateLogAttributes(ctx, d)
+	tflog.Debug(ctx, "Update linode_domain")
+
+	client := meta.(*helper.ProviderMeta).Client
+
+	id, err := strconv.Atoi(d.Id())
+	if err != nil {
+		return diag.Errorf("Error parsing Linode Domain id %s as int: %s", d.Id(), err)
+	}
+
+	updateOpts := linodego.DomainUpdateOptions{
+		Domain:      d.Get("domain").(string),
+		Status:      linodego.DomainStatus(d.Get("status").(string)),
+		Description: d.Get("description").(string),
+		SOAEmail:    d.Get("soa_email").(string),
+		RetrySec:    d.Get("retry_sec").(int),
+		ExpireSec:   d.Get("expire_sec").(int),
+		RefreshSec:  d.Get("refresh_sec").(int),
+		TTLSec:      d.Get("ttl_sec").(int),
+	}
+
+	if d.HasChange("master_ips") {
+		v := d.Get("master_ips").(*schema.Set).List()
+
+		updateOpts.MasterIPs = make([]string, len(v))
+		for i, ip := range v {
+			updateOpts.MasterIPs[i] = ip.(string)
+		}
+	}
+
+	if d.HasChange("axfr_ips") {
+		v := d.Get("axfr_ips").(*schema.Set).List()
+
+		updateOpts.AXfrIPs = make([]string, len(v))
+		for i, ip := range v {
+			updateOpts.AXfrIPs[i] = ip.(string)
+		}
+	}
+
+	if d.HasChange("tags") {
+		tags := helper.ExpandStringSet(d.Get("tags").(*schema.Set))
+		updateOpts.Tags = tags
+	}
+
+	tflog.Debug(ctx, "client.UpdateDomain(...)", map[string]any{
+		"options": updateOpts,
+	})
+
+	_, err = client.UpdateDomain(ctx, id, updateOpts)
+	if err != nil {
+		return diag.Errorf("Error updating Linode Domain %d: %s", id, err)
+	}
+	return readResource(ctx, d, meta)
+}
+
+func deleteResource(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	ctx = populateLogAttributes(ctx, d)
+	tflog.Debug(ctx, "Delete linode_domain")
+
+	client := meta.(*helper.ProviderMeta).Client
+	id, err := strconv.Atoi(d.Id())
+	if err != nil {
+		return diag.Errorf("Error parsing Linode Domain id %s as int", d.Id())
+	}
+
+	tflog.Debug(ctx, "client.DeleteDomain(...)")
+
+	err = client.DeleteDomain(ctx, id)
+	if err != nil {
+		return diag.Errorf("Error deleting Linode Domain %d: %s", id, err)
+	}
+	d.SetId("")
+
+	return nil
+}
+
+func populateLogAttributes(ctx context.Context, d *schema.ResourceData) context.Context {
+	return helper.SetLogFieldBulk(ctx, map[string]any{
+		"domain_id": d.Id(),
+	})
+}

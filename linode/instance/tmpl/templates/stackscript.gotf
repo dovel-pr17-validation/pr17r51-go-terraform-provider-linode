@@ -1,0 +1,33 @@
+{{ define "instance_stackscript" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_stackscript" "foo" {
+    label = "foo-label"
+    description = "Installs a Package"
+
+    script = <<EOF
+#!/bin/ash
+# <UDF name="hello" label="Hiya" example="example" default="">
+echo "hello this is a stack script"
+	EOF
+    images = ["{{.Image}}"]
+    rev_note = "hello version"
+}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    stackscript_id = linode_stackscript.foo.id
+    stackscript_data = {
+        "hello" = "cool"
+    }
+    image = "{{.Image}}"
+    root_pass = "{{ .RootPass }}"
+
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

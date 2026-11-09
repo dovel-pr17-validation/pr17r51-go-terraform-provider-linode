@@ -1,0 +1,99 @@
+package nbs
+
+import (
+	"context"
+
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/frameworkfilter"
+	"github.com/linode/terraform-provider-linode/v4/linode/nb"
+)
+
+// NodeBalancerFilterModel describes the Terraform resource data model to match the
+// resource schema.
+type NodeBalancerFilterModel struct {
+	ID            types.String                     `tfsdk:"id"`
+	Filters       frameworkfilter.FiltersModelType `tfsdk:"filter"`
+	Order         types.String                     `tfsdk:"order"`
+	OrderBy       types.String                     `tfsdk:"order_by"`
+	NodeBalancers []NodeBalancerModel              `tfsdk:"nodebalancers"`
+}
+
+type NodeBalancerModel struct {
+	ID                    types.Int64       `tfsdk:"id"`
+	Label                 types.String      `tfsdk:"label"`
+	Region                types.String      `tfsdk:"region"`
+	Type                  types.String      `tfsdk:"type"`
+	BackendConnectivity   types.String      `tfsdk:"backend_connectivity"`
+	ClientConnThrottle    types.Int64       `tfsdk:"client_conn_throttle"`
+	ClientUDPSessThrottle types.Int64       `tfsdk:"client_udp_sess_throttle"`
+	Hostname              types.String      `tfsdk:"hostname"`
+	Ipv4                  types.String      `tfsdk:"ipv4"`
+	Ipv6                  types.String      `tfsdk:"ipv6"`
+	BackendIPv6Prefix     types.String      `tfsdk:"backend_ipv6_prefix"`
+	Created               timetypes.RFC3339 `tfsdk:"created"`
+	Updated               timetypes.RFC3339 `tfsdk:"updated"`
+	Transfer              types.List        `tfsdk:"transfer"`
+	Tags                  types.Set         `tfsdk:"tags"`
+	LKECluster            types.List        `tfsdk:"lke_cluster"`
+}
+
+func (data *NodeBalancerFilterModel) parseNodeBalancers(
+	ctx context.Context,
+	nodebalancers []linodego.NodeBalancer,
+) {
+	result := make([]NodeBalancerModel, len(nodebalancers))
+	for i := range nodebalancers {
+		var nbData NodeBalancerModel
+		nbData.flattenNodeBalancer(ctx, &nodebalancers[i])
+		result[i] = nbData
+	}
+
+	data.NodeBalancers = result
+}
+
+func (data *NodeBalancerModel) flattenNodeBalancer(
+	ctx context.Context,
+	nodebalancer *linodego.NodeBalancer,
+) diag.Diagnostics {
+	data.ID = types.Int64Value(int64(nodebalancer.ID))
+	data.Label = types.StringPointerValue(nodebalancer.Label)
+	data.Region = types.StringValue(nodebalancer.Region)
+	data.Type = types.StringValue(string(nodebalancer.Type))
+	data.BackendConnectivity = types.StringPointerValue(helper.StringPtr(nodebalancer.BackendConnectivity))
+	data.ClientConnThrottle = types.Int64Value(int64(nodebalancer.ClientConnThrottle))
+	data.ClientUDPSessThrottle = types.Int64Value(int64(nodebalancer.ClientUDPSessThrottle))
+	data.Hostname = types.StringPointerValue(nodebalancer.Hostname)
+	data.Ipv4 = types.StringPointerValue(nodebalancer.IPv4)
+	data.Ipv6 = types.StringPointerValue(nodebalancer.IPv6)
+	data.BackendIPv6Prefix = types.StringPointerValue(nodebalancer.BackendIPv6Prefix)
+	data.Created = timetypes.NewRFC3339TimePointerValue(nodebalancer.Created)
+	data.Updated = timetypes.NewRFC3339TimePointerValue(nodebalancer.Updated)
+
+	transfer, diags := nb.FlattenTransfer(ctx, nodebalancer.Transfer)
+	if diags.HasError() {
+		return diags
+	}
+	data.Transfer = *transfer
+
+	tags, diags := types.SetValueFrom(
+		ctx,
+		types.StringType,
+		helper.StringSliceToFramework(nodebalancer.Tags),
+	)
+	if diags.HasError() {
+		return diags
+	}
+	data.Tags = tags
+
+	lkeCluster, diags := nb.FlattenLKECluster(ctx, nodebalancer.LKECluster)
+	if diags.HasError() {
+		return diags
+	}
+	data.LKECluster = *lkeCluster
+
+	return nil
+}

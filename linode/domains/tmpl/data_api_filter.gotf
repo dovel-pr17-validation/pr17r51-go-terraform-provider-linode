@@ -1,0 +1,12 @@
+{{ define "domains_data_api_filter" }}
+
+{{ template "domains_data_base" . }}
+
+data "linode_domains" "foo" {
+    filter {
+        name = "domain"
+        values = ["{{.Domain}}"]
+    }
+}
+
+{{ end }}

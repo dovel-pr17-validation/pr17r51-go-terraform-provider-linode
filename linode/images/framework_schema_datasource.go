@@ -1,0 +1,49 @@
+package images
+
+import (
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/frameworkfilter"
+	"github.com/linode/terraform-provider-linode/v4/linode/image"
+)
+
+var filterConfig = frameworkfilter.Config{
+	"deprecated": {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeBool},
+	"is_public":  {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeBool},
+	"label":      {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+	"size":       {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeInt},
+	"vendor":     {APIFilterable: true, TypeFunc: frameworkfilter.FilterTypeString},
+
+	// TODO: change to API filterable when API fixes it
+	"type": {TypeFunc: frameworkfilter.FilterTypeString},
+	"tags": {TypeFunc: frameworkfilter.FilterTypeString},
+
+	"created_by":  {TypeFunc: frameworkfilter.FilterTypeString},
+	"id":          {TypeFunc: frameworkfilter.FilterTypeString},
+	"status":      {TypeFunc: frameworkfilter.FilterTypeString},
+	"description": {TypeFunc: frameworkfilter.FilterTypeString},
+}
+
+var frameworkDatasourceSchema = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"id": schema.StringAttribute{
+			Description: "The data source's unique ID.",
+			Computed:    true,
+		},
+		"latest": schema.BoolAttribute{
+			Description: "If true, only the latest image will be returned.",
+			Optional:    true,
+		},
+		"order":    filterConfig.OrderSchema(),
+		"order_by": filterConfig.OrderBySchema(),
+		"images": schema.ListNestedAttribute{
+			Description: "The returned list of Images.",
+			Computed:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: image.ImageAttributes,
+			},
+		},
+	},
+	Blocks: map[string]schema.Block{
+		"filter": filterConfig.Schema(),
+	},
+}

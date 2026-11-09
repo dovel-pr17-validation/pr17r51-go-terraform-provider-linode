@@ -1,0 +1,17 @@
+{{ define "firewall_inst" }}
+
+resource "linode_instance" "{{.ID}}" {
+    label = "{{.Prefix}}-{{.ID}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    disk {
+        label = "disk"
+        image = "linode/debian12"
+        root_pass = "{{ .RootPass }}"
+        authorized_keys = ["{{.PubKey}}"]
+        size = 3000
+    }
+}
+
+{{ end }}

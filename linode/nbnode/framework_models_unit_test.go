@@ -1,0 +1,64 @@
+//go:build unit
+
+package nbnode
+
+import (
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/linode/linodego/v2"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestParseNodeBalancerNode(t *testing.T) {
+	mockNode := &linodego.NodeBalancerNode{
+		ID:             54321,
+		Address:        "192.168.210.120:80",
+		Label:          "node54321",
+		Status:         "UP",
+		Weight:         50,
+		Mode:           "accept",
+		ConfigID:       4567,
+		NodeBalancerID: 12345,
+		VPCConfigID:    123,
+	}
+
+	mockVPCConfig := &linodego.NodeBalancerVPCConfig{
+		ID:             123,
+		NodeBalancerID: 456,
+		SubnetID:       789,
+		VPCID:          321,
+		IPv4Range:      "10.0.0.4/30",
+	}
+
+	data := &DataSourceModel{}
+
+	data.Flatten(mockNode, mockVPCConfig)
+
+	assert.Equal(t, types.Int64Value(54321), data.ID)
+	assert.Equal(t, types.Int64Value(12345), data.NodeBalancerID)
+	assert.Equal(t, types.Int64Value(4567), data.ConfigID)
+	assert.Equal(t, types.StringValue("node54321"), data.Label)
+	assert.Equal(t, types.Int64Value(50), data.Weight)
+	assert.Equal(t, types.StringValue("accept"), data.Mode)
+	assert.Equal(t, types.StringValue("192.168.210.120:80"), data.Address)
+	assert.Equal(t, types.StringValue("UP"), data.Status)
+	assert.Equal(t, types.Int64Value(789), data.SubnetID)
+	assert.Equal(t, types.Int64Value(123), data.VPCConfigID)
+}
+
+func TestNodeBalancerNodeCreateOptionsIPv6(t *testing.T) {
+	const address = "[2001:db8:abcd:12::1]:80"
+	model := &ResourceModel{
+		BaseModel: BaseModel{
+			Address: types.StringValue(address),
+			Label:   types.StringValue("ipv6-node"),
+		},
+	}
+
+	var diags diag.Diagnostics
+	opts := model.GetCreateOptions(&diags)
+	assert.False(t, diags.HasError())
+	assert.Equal(t, address, opts.Address)
+}

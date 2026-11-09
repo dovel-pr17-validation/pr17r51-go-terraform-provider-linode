@@ -1,0 +1,238 @@
+package tmpl
+
+import (
+	"testing"
+
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+)
+
+type TaintData struct {
+	Effect string
+	Key    string
+	Value  string
+}
+
+type TemplateData struct {
+	Label            string
+	K8sVersion       string
+	UpdateStrategy   string
+	HighAvailability bool
+	Region           string
+	ACLEnabled       bool
+	IPv4             string
+	IPv6             string
+	PoolLabel        string
+	Taints           []TaintData
+	Labels           map[string]string
+	AuditLogsEnabled bool
+	Tier             string
+	FirewallID       int
+	RoutingMode      string
+	VPCIPv4Range     string
+}
+
+func Basic(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_basic", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func Updates(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_updates", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func ManyPools(t testing.TB, name, k8sVersion, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_many_pools", TemplateData{
+			Label:      name,
+			K8sVersion: k8sVersion,
+			Region:     region,
+		})
+}
+
+func ComplexPools(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_complex_pools", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func LabelledPools(t testing.TB, name, version, region, poolLabel string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_labeled_pools", TemplateData{Label: name, K8sVersion: version, Region: region, PoolLabel: poolLabel})
+}
+
+func Autoscaler(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_autoscaler", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func AutoscalerUpdates(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_autoscaler_updates", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func AutoscalerManyPools(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_autoscaler_many_pools", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func ControlPlane(t testing.TB, name, version, region, ipv4, ipv6 string, ha, enabled bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_control_plane", TemplateData{
+			Label:            name,
+			HighAvailability: ha,
+			K8sVersion:       version,
+			Region:           region,
+			IPv4:             ipv4,
+			IPv6:             ipv6,
+			ACLEnabled:       enabled,
+		})
+}
+
+func NoCount(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_no_count", TemplateData{
+			Label:      name,
+			K8sVersion: version,
+			Region:     region,
+		})
+}
+
+func AutoscalerNoCount(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_autoscaler_no_count", TemplateData{
+			Label:      name,
+			K8sVersion: version,
+			Region:     region,
+		})
+}
+
+func Enterprise(t testing.TB, name, version, region, updateStrategy string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_enterprise", TemplateData{Label: name, K8sVersion: version, Region: region, UpdateStrategy: updateStrategy})
+}
+
+func EnterpriseFirewall(t testing.TB, name, version, region string, firewall_id int) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_enterprise", TemplateData{Label: name, K8sVersion: version, Region: region, FirewallID: firewall_id})
+}
+
+func EnterpriseVXLAN(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_enterprise_vxlan", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func EnterpriseVPCOnly(t testing.TB, name, version, region, vpcIPv4Range string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_enterprise_vpc_only",
+		TemplateData{Label: name, K8sVersion: version, Region: region, VPCIPv4Range: vpcIPv4Range},
+	)
+}
+
+func EnterpriseVPCOnlyVXLAN(t testing.TB, name, version, region, vpcIPv4Range string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_enterprise_vpc_only",
+		TemplateData{Label: name, K8sVersion: version, Region: region, VPCIPv4Range: vpcIPv4Range, RoutingMode: "vxlan"},
+	)
+}
+
+func NetworkingValidation(t testing.TB, name, version, region, tier, routingMode string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_networking_validation",
+		TemplateData{Label: name, K8sVersion: version, Region: region, Tier: tier, RoutingMode: routingMode},
+	)
+}
+
+func EnterpriseNoPools(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_no_pools", TemplateData{Label: name, K8sVersion: version, Region: region, Tier: "enterprise"})
+}
+
+func EnterpriseWithPoolSkipDeletePoll(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_enterprise_with_pool_skip_delete_poll", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func StandardNoPools(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_no_pools", TemplateData{Label: name, K8sVersion: version, Region: region, Tier: "standard"})
+}
+
+func DataBasic(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_basic", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func DataEnterprise(t testing.TB, name, version, region, updateStrategy string, firewall_id int) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_enterprise", TemplateData{Label: name, K8sVersion: version, Region: region, UpdateStrategy: updateStrategy, FirewallID: firewall_id})
+}
+
+func DataEnterpriseVXLAN(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_enterprise_vxlan", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func DataAutoscaler(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_autoscaler", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func DataControlPlane(t testing.TB, name, version, region, ipv4, ipv6 string, ha, enabled bool) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_control_plane", TemplateData{
+			Label:            name,
+			HighAvailability: ha,
+			K8sVersion:       version,
+			Region:           region,
+			IPv4:             ipv4,
+			IPv6:             ipv6,
+			ACLEnabled:       enabled,
+		})
+}
+
+func DataTaintsLabels(t testing.TB, name, version, region string, taints []TaintData, labels map[string]string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_data_taints_labels", TemplateData{
+			Label:      name,
+			K8sVersion: version,
+			Region:     region,
+			Labels:     labels,
+			Taints:     taints,
+		})
+}
+
+func APLEnabled(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_apl_enabled", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func ACLDisabledAddressesDisallowed(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_acl_disabled_addresses_disallowed",
+		TemplateData{Label: name, K8sVersion: version, Region: region},
+	)
+}
+
+func TierConditional(t testing.TB, name, version, region, tier string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_tier_conditional",
+		TemplateData{Label: name, K8sVersion: version, Region: region, Tier: tier},
+	)
+}
+
+func TierConditionalWithUpdateStrategy(t testing.TB, name, version, region, tier, updateStrategy string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_cluster_tier_conditional",
+		TemplateData{Label: name, K8sVersion: version, Region: region, Tier: tier, UpdateStrategy: updateStrategy},
+	)
+}
+
+func DiskEncryptionPools(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_pools_disk_encryption", TemplateData{Label: name, K8sVersion: version, Region: region})
+}
+
+func DiskEncryptionPoolsUpdated(t testing.TB, name, version, region string) string {
+	return acceptance.ExecuteTemplate(t,
+		"lke_pools_disk_encryption_updated", TemplateData{Label: name, K8sVersion: version, Region: region})
+}

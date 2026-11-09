@@ -1,0 +1,30 @@
+{{ define "interface_public_ipv6" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_instance" "test" {
+    label = "{{.Label}}"
+    region = "{{.Region}}"
+    type = "g6-nanode-1"
+    interface_generation = "linode"
+}
+
+resource "linode_interface" "test" {
+    linode_id = linode_instance.test.id
+    firewall_id = linode_firewall.e2e_test_firewall.id
+    
+    public = {
+        ipv4 = {
+            addresses = []
+        }
+        ipv6 = {
+            ranges = [
+                {
+                    range = "/64"
+                }
+            ]
+        }
+    }
+}
+
+{{ end }}

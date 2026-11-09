@@ -1,0 +1,18 @@
+{{ define "instance_ip_basic" }}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    image = "linode/debian12"
+    root_pass = "{{ .RootPass }}"
+}
+
+resource "linode_instance_ip" "test" {
+    linode_id = linode_instance.foobar.id
+    public = true
+    apply_immediately = {{.ApplyImmediately}}
+}
+
+{{ end }}

@@ -1,0 +1,12 @@
+{{ define "object_key_all_regions" }}
+
+resource "linode_object_storage_key" "foobar" {
+    label = "{{.Label}}"
+    regions = [
+        {{ range $i, $region := .Regions }}
+        "{{ $region }}",
+        {{ end }}
+    ]
+}
+
+{{ end }}

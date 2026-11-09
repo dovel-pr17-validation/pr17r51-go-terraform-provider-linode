@@ -1,0 +1,268 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      parallel_value:
+        description: 'Number of parallel test executions for every user'
+        required: false
+      run_long_tests:
+        description: 'Choose whether to run long-duration tests that may take additional time. Set to "true" to enable long tests e.g. database related cases. Default is "false"'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      test_report_upload:
+        description: 'Indicates whether to upload the test report to object storage. Defaults to "false"'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  push:
+    branches:
+      - main
+      - dev
+      - extended-support/*
+
+jobs:
+  integration_tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        user: ["USER_1", "USER_2", "USER_3", "USER_4"]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.x'
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: Golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          install-only: true
+
+      - name: Install go-junit-report
+        run: go install github.com/jstemmer/go-junit-report/v2@latest
+
+      # Note: test suites are not in alphabetical order, it was divided to optimize test execution time
+      - name: Set Test Scope for each Account
+        run: |
+          case "${{ matrix.user }}" in 
+            "USER_1")
+              echo "TEST_SUITE=acceptance,backup,consumerimagesharegroup,consumerimagesharegroupimageshares,consumerimagesharegrouptoken,consumerimagesharegrouptokens,producerimagesharegroup,producerimagesharegroupimageshares,producerimagesharegroupmember,producerimagesharegroupmembers,producerimagesharegroups,domain,domainrecord,domains,domainzonefile,helper,instance,provider" >> $GITHUB_ENV
+              echo "LINODE_TOKEN=${{ secrets.LINODE_TOKEN_USER_1 }}" >> $GITHUB_ENV
+              echo "LINODE_PRODUCER_TOKEN=${{ secrets.LINODE_TOKEN_USER_1 }}" >> $GITHUB_ENV
+              echo "LINODE_CONSUMER_TOKEN=${{ secrets.LINODE_TOKEN_USER_2 }}" >> $GITHUB_ENV
+              ;;
+            "USER_2")
+              echo "TEST_SUITE=databasemysqlv2,firewall,firewallsettings,firewalltemplate,firewalltemplates,firewalldevice,image,images,instancenetworking,instancesharedips,instancetype,instancetypes,ipv6range,ipv6ranges,kernel,kernels,lock,locks,nb,nbconfig,nbconfigs,nbnode,nbs,nbvpc,nbvpcs,sshkey,sshkeys,vlan,volume,volumes,vpc,vpcs,vpcsubnets,vpcdefaultranges" >> $GITHUB_ENV
+              echo "LINODE_TOKEN=${{ secrets.LINODE_TOKEN_USER_2 }}" >> $GITHUB_ENV
+              ;;
+            "USER_3")
+              echo "TEST_SUITE=databasepostgresqlv2,firewalls,instanceconfig,instancedisk,instanceip,monitorlogsdestination,monitorlogsdestinations,monitorlogsstream,networkingip,objcluster,objkey,profile,rdns,region,regions,stackscript,stackscripts,vpcips" >> $GITHUB_ENV
+              echo "LINODE_TOKEN=${{ secrets.LINODE_TOKEN_USER_3 }}" >> $GITHUB_ENV
+              ;;
+            "USER_4")
+              echo "TEST_SUITE=linodeinterface,lke,lkeclusters,lkenodepool,lkeversions,obj,objbucket,placementgroup,placementgroups,placementgorupassignment,token,user,users" >> $GITHUB_ENV
+              echo "LINODE_TOKEN=${{ secrets.LINODE_TOKEN_USER_4 }}" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Set report filename
+        run: echo "REPORT_FILENAME=$(date +'%Y%m%d%H%M')_terraform_test_report_${{ matrix.user }}.xml" >> $GITHUB_ENV
+
+      - name: Run Integration Tests
+        run: |
+          make TEST_SUITE="${{ env.TEST_SUITE }}" PARALLEL="$PARALLEL" test-int | go-junit-report -set-exit-code -iocopy -out $REPORT_FILENAME
+        env:
+          LINODE_TOKEN: ${{ env.LINODE_TOKEN }}
+          LINODE_PRODUCER_TOKEN: ${{ env.LINODE_PRODUCER_TOKEN }}
+          LINODE_CONSUMER_TOKEN: ${{ env.LINODE_CONSUMER_TOKEN }}
+          RUN_LONG_TESTS: ${{ github.event.inputs.run_long_tests || 'false' }}
+          PARALLEL: ${{ github.event.inputs.parallel_value || '4' }}
+
+      - name: Upload Test Report as Artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-${{ matrix.user }}
+          if-no-files-found: ignore
+          path: '*.xml'
+          retention-days: 1
+
+  apply-calico-rules:
+    runs-on: ubuntu-latest
+    needs: [integration_tests]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Download kubectl and calicoctl for LKE clusters
+        run: |
+          curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+          curl -LO "https://github.com/projectcalico/calico/releases/download/v3.25.0/calicoctl-linux-amd64"
+          chmod +x calicoctl-linux-amd64 kubectl
+          mv calicoctl-linux-amd64 /usr/local/bin/calicoctl
+          mv kubectl /usr/local/bin/kubectl
+
+      - name: Apply Calico Rules to LKE # Only Running against Matrix USER 4 which includes LKE test suite
+        run: |
+          cd e2e_scripts/cloud_security_scripts/lke_calico_rules/ && ./lke_calico_rules_e2e.sh
+        env:
+          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN_USER_4 }}
+
+  add-fw-lke-nodes:
+    runs-on: ubuntu-latest
+    needs: [integration_tests]
+    if: always()
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: Install Linode CLI
+        run: |
+          pip install linode-cli
+
+      - name: Create Firewall and Attach to Instances
+        run: |
+          FIREWALL_ID=$(linode-cli firewalls create --label "e2e-fw-$(date +%s)" --rules.inbound_policy "DROP" --rules.outbound_policy "ACCEPT" --text --format=id --no-headers)
+          echo "Created Firewall with ID: $FIREWALL_ID"
+          
+          for instance_id in $(linode-cli linodes list --format "id" --text --no-header); do
+            echo "Attaching firewall to instance: $instance_id"
+            if linode-cli firewalls device-create "$FIREWALL_ID" --id "$instance_id" --type linode; then
+              echo "Firewall attached to instance $instance_id successfully."
+            else
+              echo "An error occurred while attaching firewall to instance $instance_id. Skipping..."
+            fi
+          done
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_TOKEN_USER_4 }} # only Matrix test user 4 runs LKE tests
+
+  process-upload-report:
+    runs-on: ubuntu-latest
+    needs: [integration_tests]
+    # Run even if integration tests fail on main repository AND push event OR test_report_upload is true in case of manual run
+    if: always() && github.repository == 'linode/terraform-provider-linode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.test_report_upload == 'true'))
+    outputs:
+      summary: ${{ steps.set-test-summary.outputs.summary }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: Install Python dependencies
+        run: pip3 install requests wheel boto3==1.35.99
+
+      - name: Download test report
+        uses: actions/download-artifact@v8
+
+      - name: Get .xml reports from separate Artifacts into root folder
+        run: rsync -av test-report-USER_*/* .
+
+      - name: Merge Test Reports
+        run: python e2e_scripts/tod_scripts/xml_to_obj_storage/terraform_tests/merge_terraform_results.py
+
+      - name: Add Information to XML Report
+        run: |
+          filename=$(ls | grep -E '^[0-9]{12}_terraform_merged_report.xml$') 
+          python e2e_scripts/tod_scripts/xml_to_obj_storage/scripts/add_gha_info_to_xml.py --branch_name "${GITHUB_REF#refs/*/}" --gha_run_id "${GITHUB_RUN_ID}" --gha_run_number "${GITHUB_RUN_NUMBER}" --xmlfile "${filename}"
+
+      - name: Upload Test Results
+        run: |
+          filename=$(ls | grep -E '^[0-9]{12}_terraform_merged_report.xml$') 
+          python e2e_scripts/tod_scripts/xml_to_obj_storage/scripts/xml_to_obj.py "${filename}"
+        env:
+          LINODE_CLI_OBJ_ACCESS_KEY: ${{ secrets.LINODE_CLI_OBJ_ACCESS_KEY }}
+          LINODE_CLI_OBJ_SECRET_KEY: ${{ secrets.LINODE_CLI_OBJ_SECRET_KEY }}
+
+      - name: Generate test summary and save to output
+        id: set-test-summary
+        run: |
+          filename=$(ls | grep -E '^[0-9]{12}_terraform_merged_report.xml$') 
+          test_output=$(python3 e2e_scripts/tod_scripts/generate_test_summary.py "${filename}")
+          echo "$test_output"
+          {
+            echo 'summary<<EOF'
+            echo "$test_output"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+  notify-slack:
+    runs-on: ubuntu-latest
+    needs: [integration_tests, process-upload-report]
+    if: always() && github.repository == 'linode/terraform-provider-linode' # Run even if integration tests fail and only on main repository
+    steps:
+      - name: Notify Slack
+        id: main_message
+        uses: slackapi/slack-github-action@v4
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL_ID }}
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: ":rocket: *${{ github.workflow }} Completed in: ${{ github.repository }}* ${{ needs.integration_tests.result == 'success' && ':white_check_mark:' || ':failed:' }}"
+              - type: divider
+              - type: section
+                fields:
+                  - type: mrkdwn
+                    text: "*Build Result:*\n${{ needs.integration_tests.result == 'success' && ':large_green_circle: Build Passed' || ':red_circle: Build Failed' }}"
+                  - type: mrkdwn
+                    text: "*Branch:*\n`${{ github.ref_name }}`"
+              - type: section
+                fields:
+                  - type: mrkdwn
+                    text: "*Commit Hash:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                  - type: mrkdwn
+                    text: "*Run URL:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run Details>"
+              - type: divider
+              - type: context
+                elements:
+                  - type: mrkdwn
+                    text: "Triggered by: :bust_in_silhouette: `${{ github.actor }}`"
+
+      - name: Test summary thread
+        if: success()
+        uses: slackapi/slack-github-action@v4
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL_ID }}
+            thread_ts: "${{ steps.main_message.outputs.ts }}"
+            text: "${{ needs.process-upload-report.outputs.summary }}"

@@ -1,0 +1,37 @@
+{{ define "instance_vpc_interface" }}
+
+{{ template "e2e_test_firewall" . }}
+
+resource "linode_vpc" "foobar" {
+    label = join("", ["{{.Label}}", "-vpc"])
+    region = "{{.Region}}"
+    description = "test description"
+}
+
+resource "linode_vpc_subnet" "foobar" {
+    vpc_id = linode_vpc.foobar.id
+    label = join("", ["{{.Label}}", "-subnet"])
+    ipv4 = "10.0.4.0/24"
+}
+
+resource "linode_instance" "foobar" {
+    label = "{{.Label}}"
+
+    type = "g6-nanode-1"
+    region = "{{ .Region }}"
+    image = "{{ .Image }}"
+    root_pass = "{{ .RootPass }}"
+
+    interface {
+        purpose = "vpc"
+        subnet_id = linode_vpc_subnet.foobar.id
+        ipv4 {
+            vpc = "10.0.4.150"
+            nat_1_1 = "any"
+        }
+        ip_ranges = ["10.0.4.100/32"]
+    }
+    firewall_id = linode_firewall.e2e_test_firewall.id
+}
+
+{{ end }}

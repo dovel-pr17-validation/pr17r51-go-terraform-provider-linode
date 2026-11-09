@@ -1,0 +1,132 @@
+//go:build integration || images
+
+package images_test
+
+import (
+	"log"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/images/tmpl"
+)
+
+var testRegion string
+
+func init() {
+	region, err := acceptance.GetRandomRegionWithCaps([]linodego.RegionCapability{linodego.CapabilityLinodes}, "core")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	testRegion = region
+}
+
+func TestAccDataSourceImages_basic_smoke(t *testing.T) {
+	t.Parallel()
+
+	imageName := acctest.RandomWithPrefix("tf_test")
+	resourceName := "data.linode_images.foobar"
+	label := imageName
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.DataBasic(t, imageName, testRegion, label),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "images.#", "2"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.label", imageName),
+					resource.TestCheckResourceAttr(resourceName, "images.0.description", "descriptive text"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.is_public", "false"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.is_shared", "false"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.image_sharing.shared_with.sharegroup_count", "0"),
+					resource.TestCheckResourceAttrSet(
+						resourceName,
+						"images.0.image_sharing.shared_with.sharegroup_list_url",
+					),
+					resource.TestCheckNoResourceAttr(resourceName, "images.0.image_sharing.shared_by"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.type", "manual"),
+					acceptance.CheckListContains(resourceName, "images.0.tags", "test"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.created"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.created_by"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.size"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.deprecated"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.capabilities.#"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.total_size"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.replications.#"),
+					resource.TestCheckResourceAttr(resourceName, "images.1.label", imageName),
+					resource.TestCheckResourceAttr(resourceName, "images.1.description", "descriptive text"),
+					resource.TestCheckResourceAttr(resourceName, "images.1.is_public", "false"),
+					resource.TestCheckResourceAttr(resourceName, "images.1.is_shared", "false"),
+					resource.TestCheckResourceAttr(resourceName, "images.1.image_sharing.shared_with.sharegroup_count", "0"),
+					resource.TestCheckResourceAttrSet(
+						resourceName,
+						"images.0.image_sharing.shared_with.sharegroup_list_url",
+					),
+					resource.TestCheckNoResourceAttr(resourceName, "images.1.image_sharing.shared_by"),
+					resource.TestCheckResourceAttr(resourceName, "images.1.type", "manual"),
+					acceptance.CheckListContains(resourceName, "images.1.tags", "test"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.created"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.created_by"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.size"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.deprecated"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.capabilities.#"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.total_size"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.1.replications.#"),
+				),
+			},
+
+			// These cases are all used in the same test to avoid recreating images unnecessarily
+			{
+				Config: tmpl.DataLatest(t, imageName, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "images.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.label", imageName),
+					resource.TestCheckResourceAttr(resourceName, "images.0.description", "descriptive text"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.is_public", "false"),
+					resource.TestCheckResourceAttr(resourceName, "images.0.type", "manual"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.created"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.created_by"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.size"),
+					resource.TestCheckResourceAttrSet(resourceName, "images.0.deprecated"),
+				),
+			},
+
+			{
+				Config: tmpl.DataLatestEmpty(t, imageName, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "images.#", "0"),
+				),
+			},
+
+			{
+				Config: tmpl.DataOrder(t, imageName, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					// Ensure order is correctly appended to filter
+					resource.TestCheckResourceAttr(resourceName, "images.#", "2"),
+				),
+			},
+
+			{
+				Config: tmpl.DataSubstring(t, imageName, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					// Ensure order is correctly appended to filter
+					acceptance.CheckResourceAttrGreaterThan(resourceName, "images.#", 1),
+					acceptance.CheckResourceAttrContains(resourceName, "images.0.label", "Alpine"),
+				),
+			},
+
+			{
+				Config: tmpl.DataClientFilter(t, imageName, testRegion),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "images.#", "1"),
+					acceptance.CheckResourceAttrContains(resourceName, "images.0.label", imageName),
+				),
+			},
+		},
+	})
+}

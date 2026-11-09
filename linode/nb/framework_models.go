@@ -1,0 +1,513 @@
+package nb
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/hashicorp/terraform-plugin-framework-nettypes/iptypes"
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/firewall"
+	"github.com/linode/terraform-provider-linode/v4/linode/firewalls"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+)
+
+// NodeBalancerModel describes the Terraform resource data model to match the
+// resource schema.
+type NodeBalancerModel struct {
+	ID                    types.String        `tfsdk:"id"`
+	Label                 types.String        `tfsdk:"label"`
+	Region                types.String        `tfsdk:"region"`
+	Type                  types.String        `tfsdk:"type"`
+	BackendConnectivity   types.String        `tfsdk:"backend_connectivity"`
+	ClientConnThrottle    types.Int64         `tfsdk:"client_conn_throttle"`
+	ClientUDPSessThrottle types.Int64         `tfsdk:"client_udp_sess_throttle"`
+	FirewallID            types.Int64         `tfsdk:"firewall_id"`
+	Hostname              types.String        `tfsdk:"hostname"`
+	IPv4                  iptypes.IPv4Address `tfsdk:"ipv4"`
+	IPv6                  types.String        `tfsdk:"ipv6"`
+	BackendIPv6Prefix     types.String        `tfsdk:"backend_ipv6_prefix"`
+	Created               timetypes.RFC3339   `tfsdk:"created"`
+	Updated               timetypes.RFC3339   `tfsdk:"updated"`
+	Transfer              types.List          `tfsdk:"transfer"`
+	Tags                  types.Set           `tfsdk:"tags"`
+	Firewalls             types.List          `tfsdk:"firewalls"`
+	VPCs                  types.List          `tfsdk:"vpcs"`
+	LKECluster            types.List          `tfsdk:"lke_cluster"`
+}
+
+func (data *NodeBalancerModel) GetCreateOptions(clientConnThrottle, clientUDPSessThrottle int) linodego.NodeBalancerCreateOptions {
+	opts := linodego.NodeBalancerCreateOptions{
+		Region:                data.Region.ValueString(),
+		Label:                 data.Label.ValueStringPointer(),
+		ClientConnThrottle:    &clientConnThrottle,
+		ClientUDPSessThrottle: &clientUDPSessThrottle,
+	}
+	if !data.Type.IsNull() && !data.Type.IsUnknown() {
+		opts.Type = linodego.NodeBalancerPlanType(data.Type.ValueString())
+	}
+	if !data.BackendConnectivity.IsNull() && !data.BackendConnectivity.IsUnknown() {
+		opts.BackendConnectivity = new(linodego.NodeBalancerBackendConnectivity(data.BackendConnectivity.ValueString()))
+	}
+	return opts
+}
+
+// LKEClusterModel represents the lke_cluster nested object.
+type LKEClusterModel struct {
+	ID    types.Int64  `tfsdk:"id"`
+	Label types.String `tfsdk:"label"`
+	Type  types.String `tfsdk:"type"`
+	URL   types.String `tfsdk:"url"`
+}
+
+// LKEClusterObjectType is the attr.Type for LKEClusterModel.
+var LKEClusterObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"id":    types.Int64Type,
+		"label": types.StringType,
+		"type":  types.StringType,
+		"url":   types.StringType,
+	},
+}
+
+type FirewallModel struct {
+	ID             types.Int64          `tfsdk:"id"`
+	Label          types.String         `tfsdk:"label"`
+	Tags           types.Set            `tfsdk:"tags"`
+	InboundPolicy  types.String         `tfsdk:"inbound_policy"`
+	OutboundPolicy types.String         `tfsdk:"outbound_policy"`
+	Status         types.String         `tfsdk:"status"`
+	Created        types.String         `tfsdk:"created"`
+	Updated        types.String         `tfsdk:"updated"`
+	Inbound        []firewall.RuleModel `tfsdk:"inbound"`
+	Outbound       []firewall.RuleModel `tfsdk:"outbound"`
+}
+
+type nbModelV0 struct {
+	ID                 types.String `tfsdk:"id"`
+	Label              types.String `tfsdk:"label"`
+	Region             types.String `tfsdk:"region"`
+	ClientConnThrottle types.Int64  `tfsdk:"client_conn_throttle"`
+	Hostname           types.String `tfsdk:"hostname"`
+	IPv4               types.String `tfsdk:"ipv4"`
+	IPv6               types.String `tfsdk:"ipv6"`
+	Created            types.String `tfsdk:"created"`
+	Updated            types.String `tfsdk:"updated"`
+	Tags               types.Set    `tfsdk:"tags"`
+	Transfer           types.Map    `tfsdk:"transfer"`
+}
+
+func (data *NodeBalancerModel) Flatten(
+	ctx context.Context,
+	nodebalancer *linodego.NodeBalancer,
+	firewalls []linodego.Firewall,
+	vpcConfigs []linodego.NodeBalancerVPCConfig,
+	preserveKnown bool,
+) diag.Diagnostics {
+	data.ID = helper.KeepOrUpdateString(data.ID, strconv.Itoa(nodebalancer.ID), preserveKnown)
+	data.Label = helper.KeepOrUpdateStringPointer(data.Label, nodebalancer.Label, preserveKnown)
+
+	tags, diags := types.SetValueFrom(ctx, types.StringType, helper.StringSliceToFramework(nodebalancer.Tags))
+	if diags.HasError() {
+		return diags
+	}
+	data.Tags = helper.KeepOrUpdateValue(data.Tags, tags, preserveKnown)
+
+	data.Region = helper.KeepOrUpdateString(data.Region, nodebalancer.Region, preserveKnown)
+	data.Type = helper.KeepOrUpdateString(data.Type, string(nodebalancer.Type), preserveKnown)
+	data.BackendConnectivity = helper.KeepOrUpdateStringPointer(
+		data.BackendConnectivity, helper.StringPtr(nodebalancer.BackendConnectivity), preserveKnown,
+	)
+	data.ClientConnThrottle = helper.KeepOrUpdateInt64(
+		data.ClientConnThrottle, int64(nodebalancer.ClientConnThrottle), preserveKnown,
+	)
+	data.ClientUDPSessThrottle = helper.KeepOrUpdateInt64(
+		data.ClientUDPSessThrottle, int64(nodebalancer.ClientUDPSessThrottle), preserveKnown,
+	)
+	data.Hostname = helper.KeepOrUpdateStringPointer(data.Hostname, nodebalancer.Hostname, preserveKnown)
+	data.IPv4 = helper.KeepOrUpdateValue(data.IPv4, iptypes.NewIPv4AddressPointerValue(nodebalancer.IPv4), preserveKnown)
+	data.IPv6 = helper.KeepOrUpdateStringPointer(data.IPv6, nodebalancer.IPv6, preserveKnown)
+	data.BackendIPv6Prefix = helper.KeepOrUpdateStringPointer(
+		data.BackendIPv6Prefix, nodebalancer.BackendIPv6Prefix, preserveKnown,
+	)
+	data.Created = helper.KeepOrUpdateValue(
+		data.Created, timetypes.NewRFC3339TimePointerValue(nodebalancer.Created), preserveKnown,
+	)
+	data.Updated = helper.KeepOrUpdateValue(
+		data.Updated, timetypes.NewRFC3339TimePointerValue(nodebalancer.Updated), preserveKnown,
+	)
+
+	transfer, diags := FlattenTransfer(ctx, nodebalancer.Transfer)
+	if diags.HasError() {
+		return diags
+	}
+
+	data.Transfer = helper.KeepOrUpdateValue(data.Transfer, *transfer, preserveKnown)
+
+	fws, diags := parseNBFirewalls(ctx, firewalls)
+	if diags.HasError() {
+		return diags
+	}
+
+	data.Firewalls = helper.KeepOrUpdateValue(data.Firewalls, *fws, preserveKnown)
+
+	vpcConfigsModels := helper.MapSlice(
+		vpcConfigs,
+		func(vpcConfig linodego.NodeBalancerVPCConfig) (result ResourceVPCModel) {
+			result.FlattenVPCConfig(&vpcConfig)
+			return result
+		},
+	)
+
+	vpcs, diags := types.ListValueFrom(ctx, frameworkResourceSchemaVPCs.Type(), vpcConfigsModels)
+	if diags.HasError() {
+		return diags
+	}
+
+	// TODO: Make use of new KeepOrUpdate helpers once Linode Interfaces has been merged.
+	//		 In the meantime, enabling preserveKnown will break the diff logic for computed fields.
+	data.VPCs = helper.KeepOrUpdateValue(data.VPCs, vpcs, false)
+
+	lkeCluster, diags := FlattenLKECluster(ctx, nodebalancer.LKECluster)
+	if diags.HasError() {
+		return diags
+	}
+	data.LKECluster = helper.KeepOrUpdateValue(data.LKECluster, *lkeCluster, preserveKnown)
+
+	return nil
+}
+
+func (data *NodeBalancerModel) CopyFrom(other NodeBalancerModel, preserveKnown bool) {
+	data.ID = helper.KeepOrUpdateValue(data.ID, other.ID, preserveKnown)
+	data.Label = helper.KeepOrUpdateValue(data.Label, other.Label, preserveKnown)
+	data.Region = helper.KeepOrUpdateValue(data.Region, other.Region, preserveKnown)
+	data.Type = helper.KeepOrUpdateValue(data.Type, other.Type, preserveKnown)
+	data.BackendConnectivity = helper.KeepOrUpdateValue(
+		data.BackendConnectivity, other.BackendConnectivity, preserveKnown,
+	)
+	data.ClientConnThrottle = helper.KeepOrUpdateValue(
+		data.ClientConnThrottle, other.ClientConnThrottle, preserveKnown,
+	)
+	data.ClientUDPSessThrottle = helper.KeepOrUpdateValue(
+		data.ClientUDPSessThrottle, other.ClientUDPSessThrottle, preserveKnown,
+	)
+	data.FirewallID = helper.KeepOrUpdateValue(data.FirewallID, other.FirewallID, preserveKnown)
+	data.Hostname = helper.KeepOrUpdateValue(data.Hostname, other.Hostname, preserveKnown)
+	data.IPv4 = helper.KeepOrUpdateValue(data.IPv4, other.IPv4, preserveKnown)
+	data.IPv6 = helper.KeepOrUpdateValue(data.IPv6, other.IPv6, preserveKnown)
+	data.BackendIPv6Prefix = helper.KeepOrUpdateValue(data.BackendIPv6Prefix, other.BackendIPv6Prefix, preserveKnown)
+	data.Created = helper.KeepOrUpdateValue(data.Created, other.Created, preserveKnown)
+	data.Updated = helper.KeepOrUpdateValue(data.Updated, other.Updated, preserveKnown)
+	data.Transfer = helper.KeepOrUpdateValue(data.Transfer, other.Transfer, preserveKnown)
+	data.Tags = helper.KeepOrUpdateValue(data.Tags, other.Tags, preserveKnown)
+	data.Firewalls = helper.KeepOrUpdateValue(data.Firewalls, other.Firewalls, preserveKnown)
+	data.VPCs = helper.KeepOrUpdateValue(data.VPCs, other.VPCs, preserveKnown)
+	data.LKECluster = helper.KeepOrUpdateValue(data.LKECluster, other.LKECluster, preserveKnown)
+}
+
+func parseNBFirewalls(
+	ctx context.Context,
+	firewalls []linodego.Firewall,
+) (*types.List, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	nbFirewalls := make([]FirewallModel, len(firewalls))
+
+	for i, fw := range firewalls {
+		nbFirewalls[i].ID = types.Int64Value(int64(fw.ID))
+		nbFirewalls[i].Label = types.StringValue(fw.Label)
+		nbFirewalls[i].InboundPolicy = types.StringValue(fw.Rules.InboundPolicy)
+		nbFirewalls[i].OutboundPolicy = types.StringValue(fw.Rules.OutboundPolicy)
+		nbFirewalls[i].Status = types.StringValue(string(fw.Status))
+		nbFirewalls[i].Created = timetypes.NewRFC3339TimePointerValue(fw.Created).StringValue
+		nbFirewalls[i].Updated = timetypes.NewRFC3339TimePointerValue(fw.Updated).StringValue
+
+		tags, diags := types.SetValueFrom(ctx, types.StringType, fw.Tags)
+		if diags.HasError() {
+			return nil, diags
+		}
+		nbFirewalls[i].Tags = tags
+
+		if fw.Rules.Inbound != nil {
+			inBound := firewall.FlattenFirewallRules(ctx, fw.Rules.Inbound, nbFirewalls[i].Inbound, false, &diags)
+			if diags.HasError() {
+				return nil, diags
+			}
+			nbFirewalls[i].Inbound = inBound
+		}
+
+		if fw.Rules.Outbound != nil {
+			outBound := firewall.FlattenFirewallRules(ctx, fw.Rules.Outbound, nbFirewalls[i].Inbound, false, &diags)
+			if diags.HasError() {
+				return nil, diags
+			}
+			nbFirewalls[i].Outbound = outBound
+		}
+	}
+
+	result, diags := types.ListValueFrom(ctx, firewallObjType, nbFirewalls)
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return &result, nil
+}
+
+func FlattenTransfer(
+	ctx context.Context,
+	transfer linodego.NodeBalancerTransfer,
+) (*types.List, diag.Diagnostics) {
+	result := make(map[string]attr.Value)
+
+	result["in"] = helper.Float64PointerValueWithDefault(transfer.In)
+	result["out"] = helper.Float64PointerValueWithDefault(transfer.Out)
+	result["total"] = helper.Float64PointerValueWithDefault(transfer.Total)
+
+	transferObj, diags := types.ObjectValue(TransferObjectType.AttrTypes, result)
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	resultList, diags := types.ListValueFrom(ctx, TransferObjectType, []attr.Value{transferObj})
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return &resultList, nil
+}
+
+func UpgradeResourceStateValue(val string) (types.Float64, diag.Diagnostic) {
+	if val == "" {
+		return types.Float64Value(0), nil
+	}
+	result, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return types.Float64Null(), diag.NewErrorDiagnostic(
+			"Failed to upgrade state.",
+			err.Error(),
+		)
+	}
+	return types.Float64Value(result), nil
+}
+
+// NodeBalancerDataSourceModel describes the Terraform data model to match the
+// data source schema.
+type NodeBalancerDataSourceModel struct {
+	ID                    types.Int64       `tfsdk:"id"`
+	Label                 types.String      `tfsdk:"label"`
+	Region                types.String      `tfsdk:"region"`
+	Type                  types.String      `tfsdk:"type"`
+	BackendConnectivity   types.String      `tfsdk:"backend_connectivity"`
+	ClientConnThrottle    types.Int64       `tfsdk:"client_conn_throttle"`
+	ClientUDPSessThrottle types.Int64       `tfsdk:"client_udp_sess_throttle"`
+	Hostname              types.String      `tfsdk:"hostname"`
+	IPv4                  types.String      `tfsdk:"ipv4"`
+	IPv6                  types.String      `tfsdk:"ipv6"`
+	BackendIPv6Prefix     types.String      `tfsdk:"backend_ipv6_prefix"`
+	Created               timetypes.RFC3339 `tfsdk:"created"`
+	Updated               timetypes.RFC3339 `tfsdk:"updated"`
+	Transfer              types.List        `tfsdk:"transfer"`
+	Tags                  types.Set         `tfsdk:"tags"`
+	Firewalls             []NBFirewallModel `tfsdk:"firewalls"`
+	VPCs                  types.List        `tfsdk:"vpcs"`
+	LKECluster            types.List        `tfsdk:"lke_cluster"`
+}
+
+type NBFirewallModel struct {
+	ID             types.Int64                   `tfsdk:"id"`
+	Label          types.String                  `tfsdk:"label"`
+	Tags           []types.String                `tfsdk:"tags"`
+	InboundPolicy  types.String                  `tfsdk:"inbound_policy"`
+	OutboundPolicy types.String                  `tfsdk:"outbound_policy"`
+	Status         types.String                  `tfsdk:"status"`
+	Created        timetypes.RFC3339             `tfsdk:"created"`
+	Updated        timetypes.RFC3339             `tfsdk:"updated"`
+	Inbound        []firewalls.FirewallRuleModel `tfsdk:"inbound"`
+	Outbound       []firewalls.FirewallRuleModel `tfsdk:"outbound"`
+}
+
+func (data *NodeBalancerDataSourceModel) Flatten(
+	ctx context.Context,
+	nodebalancer *linodego.NodeBalancer,
+	firewalls []linodego.Firewall,
+	vpcConfigs []linodego.NodeBalancerVPCConfig,
+) diag.Diagnostics {
+	data.ID = types.Int64Value(int64(nodebalancer.ID))
+	data.Label = types.StringPointerValue(nodebalancer.Label)
+	data.Region = types.StringValue(nodebalancer.Region)
+	data.Type = types.StringValue(string(nodebalancer.Type))
+	data.BackendConnectivity = types.StringPointerValue(
+		helper.StringPtr(nodebalancer.BackendConnectivity),
+	)
+	data.ClientConnThrottle = types.Int64Value(int64(nodebalancer.ClientConnThrottle))
+	data.ClientUDPSessThrottle = types.Int64Value(int64(nodebalancer.ClientUDPSessThrottle))
+	data.Hostname = types.StringPointerValue(nodebalancer.Hostname)
+	data.IPv4 = types.StringPointerValue(nodebalancer.IPv4)
+	data.IPv6 = types.StringPointerValue(nodebalancer.IPv6)
+	data.BackendIPv6Prefix = types.StringPointerValue(nodebalancer.BackendIPv6Prefix)
+	data.Created = timetypes.NewRFC3339TimePointerValue(nodebalancer.Created)
+	data.Updated = timetypes.NewRFC3339TimePointerValue(nodebalancer.Updated)
+
+	transfer, diags := FlattenTransfer(ctx, nodebalancer.Transfer)
+	if diags.HasError() {
+		return diags
+	}
+	data.Transfer = *transfer
+
+	tags, diags := types.SetValueFrom(
+		ctx,
+		types.StringType,
+		helper.StringSliceToFramework(nodebalancer.Tags),
+	)
+	if diags.HasError() {
+		return diags
+	}
+	data.Tags = tags
+
+	nbFirewalls := make([]NBFirewallModel, len(firewalls))
+
+	for i := range firewalls {
+		var nbFirewall NBFirewallModel
+		nbFirewall.FlattenFirewall(&firewalls[i], false)
+		nbFirewalls[i] = nbFirewall
+	}
+
+	data.Firewalls = nbFirewalls
+
+	vpcConfigsModels := helper.MapSlice(
+		vpcConfigs,
+		func(vpcConfig linodego.NodeBalancerVPCConfig) (result DataSourceVPCModel) {
+			result.FlattenVPCConfig(&vpcConfig)
+			return result
+		},
+	)
+
+	vpcs, diags := types.ListValueFrom(ctx, dataSourceVPCObjType, vpcConfigsModels)
+	if diags.HasError() {
+		return diags
+	}
+
+	data.VPCs = helper.KeepOrUpdateValue(data.VPCs, vpcs, false)
+
+	lkeCluster, diags := FlattenLKECluster(ctx, nodebalancer.LKECluster)
+	if diags.HasError() {
+		return diags
+	}
+	data.LKECluster = *lkeCluster
+
+	return nil
+}
+
+func (d *NBFirewallModel) FlattenFirewall(firewall *linodego.Firewall, preserveKnown bool) {
+	d.ID = types.Int64Value(int64(firewall.ID))
+	d.Label = types.StringValue(firewall.Label)
+	d.Tags = helper.StringSliceToFramework(firewall.Tags)
+	d.InboundPolicy = types.StringValue(firewall.Rules.InboundPolicy)
+	d.OutboundPolicy = types.StringValue(firewall.Rules.OutboundPolicy)
+	d.Status = types.StringValue(string(firewall.Status))
+	d.Created = timetypes.NewRFC3339TimePointerValue(firewall.Created)
+	d.Updated = timetypes.NewRFC3339TimePointerValue(firewall.Updated)
+
+	d.Inbound = make([]firewalls.FirewallRuleModel, len(firewall.Rules.Inbound))
+	for i, v := range firewall.Rules.Inbound {
+		var rule firewalls.FirewallRuleModel
+		rule.ParseRule(v)
+		d.Inbound[i] = rule
+	}
+
+	d.Outbound = make([]firewalls.FirewallRuleModel, len(firewall.Rules.Outbound))
+	for i, v := range firewall.Rules.Outbound {
+		var rule firewalls.FirewallRuleModel
+		rule.ParseRule(v)
+		d.Outbound[i] = rule
+	}
+}
+
+type BaseVPCModel struct {
+	SubnetID  types.Int64  `tfsdk:"subnet_id"`
+	IPv4Range types.String `tfsdk:"ipv4_range"`
+	IPv6Range types.String `tfsdk:"ipv6_range"`
+}
+
+func (m *BaseVPCModel) FlattenVPCConfig(vpcConfig *linodego.NodeBalancerVPCConfig) {
+	m.SubnetID = types.Int64Value(int64(vpcConfig.SubnetID))
+	m.IPv4Range = types.StringValue(vpcConfig.IPv4Range)
+	m.IPv6Range = types.StringValue(vpcConfig.IPv6Range)
+}
+
+type ResourceVPCModel struct {
+	BaseVPCModel
+
+	IPv4RangeAutoAssign types.Bool `tfsdk:"ipv4_range_auto_assign"`
+}
+
+func (m *ResourceVPCModel) ToLinodego() (*linodego.NodeBalancerVPCOptions, diag.Diagnostics) {
+	var d diag.Diagnostics
+
+	subnetID := helper.FrameworkSafeInt64ToInt(
+		m.SubnetID.ValueInt64(),
+		&d,
+	)
+	if d.HasError() {
+		return nil, d
+	}
+
+	return &linodego.NodeBalancerVPCOptions{
+		SubnetID:            subnetID,
+		IPv4Range:           m.IPv4Range.ValueString(),
+		IPv6Range:           m.IPv6Range.ValueString(),
+		IPv4RangeAutoAssign: m.IPv4RangeAutoAssign.ValueBool(),
+	}, d
+}
+
+func vpcModelsToLinodego(
+	ctx context.Context,
+	vpcs types.List,
+) ([]linodego.NodeBalancerVPCOptions, diag.Diagnostics) {
+	var d diag.Diagnostics
+
+	var vpcModels []ResourceVPCModel
+
+	d.Append(vpcs.ElementsAs(ctx, &vpcModels, false)...)
+	if d.HasError() {
+		return nil, d
+	}
+
+	return helper.MapSlice(
+		vpcModels,
+		func(vpcModel ResourceVPCModel) linodego.NodeBalancerVPCOptions {
+			result, localD := vpcModel.ToLinodego()
+			d.Append(localD...)
+			return *result
+		},
+	), d
+}
+
+type DataSourceVPCModel struct {
+	BaseVPCModel
+}
+
+// FlattenLKECluster converts a linodego.NodeBalancerLKECluster pointer to a types.List.
+// Returns an empty list when lkeCluster is nil.
+func FlattenLKECluster(
+	ctx context.Context,
+	lkeCluster *linodego.NodeBalancerLKECluster,
+) (*types.List, diag.Diagnostics) {
+	if lkeCluster == nil {
+		result, diags := types.ListValueFrom(ctx, LKEClusterObjectType, []LKEClusterModel{})
+		return &result, diags
+	}
+
+	model := LKEClusterModel{
+		ID:    types.Int64Value(int64(lkeCluster.ID)),
+		Label: types.StringValue(lkeCluster.Label),
+		Type:  types.StringValue(lkeCluster.Type),
+		URL:   types.StringValue(lkeCluster.URL),
+	}
+
+	result, diags := types.ListValueFrom(ctx, LKEClusterObjectType, []LKEClusterModel{model})
+	return &result, diags
+}

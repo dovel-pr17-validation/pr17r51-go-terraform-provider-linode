@@ -1,0 +1,109 @@
+//go:build integration || accountsettings || act_tests
+
+package accountsettings_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/acceptance"
+	"github.com/linode/terraform-provider-linode/v4/linode/accountsettings/tmpl"
+)
+
+func TestAccResourceAccountSettings_basic(t *testing.T) {
+	acceptance.OptInTest(t)
+
+	resourceName := "linode_account_settings.foobar"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.Basic(t),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("backups_enabled"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("managed"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("network_helper"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("longview_subscription"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("object_storage"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("interfaces_for_new_linodes"), knownvalue.NotNull()),
+				},
+			},
+		},
+	})
+}
+
+func TestAccResourceAccountSettings_update(t *testing.T) {
+	acceptance.OptInTest(t)
+
+	resourceName := "linode_account_settings.foobar"
+
+	client, err := acceptance.GetTestClient()
+	if err != nil {
+		t.Fail()
+		t.Log("Failed to get testing client.")
+	}
+
+	accountSettings, _ := client.GetAccountSettings(context.Background())
+
+	currBackupsEnabled := accountSettings.BackupsEnabled
+	currNetworkHelper := accountSettings.NetworkHelper
+	currInterfacesForNewLinodes := accountSettings.InterfacesForNewLinodes
+	currMaintenancePolicy := accountSettings.MaintenancePolicy
+
+	updatedBackupsEnabled := !currBackupsEnabled
+	updatedNetworkHelper := !currNetworkHelper
+	updatedMaintenancePolicy := "linode/power_off_on"
+
+	var updatedInterfacesForNewLinodes string
+	if currInterfacesForNewLinodes == linodego.LegacyConfigDefaultButLinodeAllowed {
+		updatedInterfacesForNewLinodes = string(linodego.LinodeDefaultButLegacyConfigAllowed)
+	} else {
+		updatedInterfacesForNewLinodes = string(linodego.LegacyConfigDefaultButLinodeAllowed)
+	}
+
+	if currMaintenancePolicy == "" || currMaintenancePolicy == "linode/power_off_on" {
+		updatedMaintenancePolicy = "linode/migrate"
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acceptance.PreCheck(t) },
+		ProtoV6ProviderFactories: acceptance.ProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: tmpl.Updates(
+					t,
+					updatedInterfacesForNewLinodes,
+					updatedBackupsEnabled,
+					updatedNetworkHelper,
+					updatedMaintenancePolicy,
+				),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("maintenance_policy"), knownvalue.StringExact(updatedMaintenancePolicy)),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("backups_enabled"), knownvalue.Bool(updatedBackupsEnabled)),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("network_helper"), knownvalue.Bool(updatedNetworkHelper)),
+					statecheck.ExpectKnownValue(
+						resourceName, tfjsonpath.New("interfaces_for_new_linodes"), knownvalue.StringExact(updatedInterfacesForNewLinodes),
+					),
+				},
+			},
+			{
+				Config: tmpl.Updates(t, string(currInterfacesForNewLinodes), currBackupsEnabled, currNetworkHelper, currMaintenancePolicy),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("maintenance_policy"), knownvalue.StringExact(currMaintenancePolicy)),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("backups_enabled"), knownvalue.Bool(currBackupsEnabled)),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("network_helper"), knownvalue.Bool(currNetworkHelper)),
+					statecheck.ExpectKnownValue(
+						resourceName, tfjsonpath.New("interfaces_for_new_linodes"), knownvalue.StringExact(string(currInterfacesForNewLinodes)),
+					),
+				},
+			},
+		},
+	})
+}

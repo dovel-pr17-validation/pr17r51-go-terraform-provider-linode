@@ -1,0 +1,10 @@
+{{ define "placement_group_basic" }}
+
+resource "linode_placement_group" "foobar" {
+    label = "{{.Label}}"
+    region = "{{.Region}}"
+    placement_group_type = "{{.PlacementGroupType}}"
+    placement_group_policy = "{{.PlacementGroupPolicy}}"
+}
+
+{{ end }}

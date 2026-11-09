@@ -1,0 +1,294 @@
+package lke
+
+import (
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+var taintObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"effect": types.StringType,
+		"key":    types.StringType,
+		"value":  types.StringType,
+	},
+}
+
+var frameworkDataSourceSchema = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"id": schema.Int64Attribute{
+			Description: "The unique ID of this LKE Cluster.",
+			Required:    true,
+		},
+		"label": schema.StringAttribute{
+			Computed:    true,
+			Description: "The unique label for the cluster.",
+		},
+		"k8s_version": schema.StringAttribute{
+			Computed: true,
+			Description: "The desired Kubernetes version for this Kubernetes cluster in the format of <major>.<minor>. " +
+				"The latest supported patch version will be deployed.",
+		},
+		"apl_enabled": schema.BoolAttribute{
+			Computed: true,
+			Description: "Enables the App Platform Layer for this cluster. " +
+				"Note: v4beta only and may not currently be available to all users.",
+		},
+		"tags": schema.SetAttribute{
+			ElementType: types.StringType,
+			Computed:    true,
+			Description: "An array of tags applied to this object. Tags are for organizational purposes only.",
+		},
+		"region": schema.StringAttribute{
+			Computed:    true,
+			Description: "This cluster's location.",
+		},
+		"api_endpoints": schema.ListAttribute{
+			ElementType: types.StringType,
+			Computed:    true,
+			Description: "The API endpoints for the cluster.",
+		},
+		"kubeconfig": schema.StringAttribute{
+			Computed:    true,
+			Sensitive:   true,
+			Description: "The Base64-encoded Kubeconfig for the cluster.",
+		},
+		"status": schema.StringAttribute{
+			Computed:    true,
+			Description: "The status of the cluster.",
+		},
+		"created": schema.StringAttribute{
+			Computed:    true,
+			Description: "When this Kubernetes cluster was created.",
+		},
+		"updated": schema.StringAttribute{
+			Computed:    true,
+			Description: "When this Kubernetes cluster was updated.",
+		},
+		"tier": schema.StringAttribute{
+			Computed:    true,
+			Description: "The desired Kubernetes tier.",
+		},
+		"subnet_id": schema.Int64Attribute{
+			Computed:    true,
+			Description: "The ID of the VPC subnet to use for the Kubernetes cluster. This subnet must be dual stack (IPv4 and IPv6 should both be enabled). ",
+		},
+		"vpc_id": schema.Int64Attribute{
+			Computed:    true,
+			Description: "The ID of the VPC to use for the Kubernetes cluster.",
+		},
+		"stack_type": schema.StringAttribute{
+			Computed:    true,
+			Description: "The networking stack type of the Kubernetes cluster.",
+		},
+		"networking": schema.ListNestedAttribute{
+			Computed: true,
+			Description: "The pod network routing mode and network configuration of an LKE Enterprise cluster. " +
+				"Note: v4beta only and may not currently be available to all users.",
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"routing_mode": schema.StringAttribute{
+						Computed:    true,
+						Description: "The pod network routing mode.",
+					},
+					"cluster_cidr_ipv4": schema.StringAttribute{
+						Computed:    true,
+						Description: "The IPv4 pod network CIDR.",
+					},
+					"node_cidr_mask_size_ipv4": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The IPv4 pod CIDR prefix length assigned to each node.",
+					},
+					"service_cluster_ip_range_ipv4": schema.StringAttribute{
+						Computed:    true,
+						Description: "The IPv4 service CIDR.",
+					},
+					"max_pods": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The maximum number of pods per node.",
+					},
+					"nodebalancer_backend_prefix_length": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The prefix length reserved from the highest portion of the VPC subnet for NodeBalancer backends.",
+					},
+					"cluster_cidr_ipv6": schema.StringAttribute{
+						Computed:    true,
+						Description: "The system-assigned IPv6 pod network CIDR.",
+					},
+					"node_cidr_mask_size_ipv6": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The IPv6 pod CIDR prefix length assigned to each node.",
+					},
+					"service_cluster_ip_range_ipv6": schema.StringAttribute{
+						Computed:    true,
+						Description: "The system-assigned IPv6 service CIDR.",
+					},
+				},
+			},
+		},
+		"control_plane": schema.ListNestedAttribute{
+			Computed:    true,
+			Description: "Defines settings for the Kubernetes Control Plane.",
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"high_availability": schema.BoolAttribute{
+						Description: "Defines whether High Availability is enabled for the Control Plane Components of the cluster.",
+						Computed:    true,
+					},
+					"audit_logs_enabled": schema.BoolAttribute{
+						Description: "Enables audit logs on the cluster's control plane.",
+						Computed:    true,
+					},
+					"acl": schema.ListNestedAttribute{
+						Computed:    true,
+						Description: "The ACL configuration for an LKE cluster's control plane.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"enabled": schema.BoolAttribute{
+									Description: "The default policy. A value of true means a default policy of DENY. A value of false means default policy of ALLOW.",
+									Computed:    true,
+								},
+								"addresses": schema.ListNestedAttribute{
+									Description: "A list of ip addresses allowed.",
+									Computed:    true,
+									NestedObject: schema.NestedAttributeObject{
+										Attributes: map[string]schema.Attribute{
+											"ipv4": schema.SetAttribute{
+												Description: "A set of individual ipv4 addresses or CIDRs allowed.",
+												Computed:    true,
+												ElementType: types.StringType,
+											},
+											"ipv6": schema.SetAttribute{
+												Description: "A set of individual ipv6 addresses or CIDRs allowed.",
+												Computed:    true,
+												ElementType: types.StringType,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"pools": schema.ListNestedAttribute{
+			Computed:    true,
+			Description: "All active Node Pools on the cluster.",
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"id": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The ID of the Node Pool.",
+					},
+					"label": schema.StringAttribute{
+						Description: "The label of the Node Pool.",
+						Optional:    true,
+					},
+					"firewall_id": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The ID of the firewall associated with the Node Pool.",
+					},
+					"count": schema.Int64Attribute{
+						Computed:    true,
+						Description: "The number of nodes in the Node Pool.",
+					},
+					"type": schema.StringAttribute{
+						Computed:    true,
+						Description: "A Linode Type for all of the nodes in the Node Pool.",
+					},
+					"tags": schema.ListAttribute{
+						ElementType: types.StringType,
+						Computed:    true,
+						Description: "An array of tags applied to this object. Tags are for organizational purposes only.",
+					},
+					"disk_encryption": schema.StringAttribute{
+						Computed:    true,
+						Description: "The disk encryption policy for the nodes in this pool.",
+					},
+					"taints": schema.SetAttribute{
+						Computed: true,
+						Description: "Kubernetes taints to add to node pool nodes. " +
+							"Taints help control how pods are scheduled onto nodes, " +
+							"specifically allowing them to repel certain pods.",
+						ElementType: taintObjectType,
+					},
+					"labels": schema.MapAttribute{
+						Computed: true,
+						Description: "Key-value pairs added as labels to nodes in " +
+							"the node pool. Labels help classify your nodes and to " +
+							"easily select subsets of objects.",
+						ElementType: types.StringType,
+					},
+					"k8s_version": schema.StringAttribute{
+						Computed: true,
+						Description: "The Kubernetes version for this pool in the format of <major>.<minor>. " +
+							"This is only available for Enterprise clusters.",
+					},
+					"update_strategy": schema.StringAttribute{
+						Computed: true,
+						Description: "The strategy for updating the node pool k8s version. " +
+							"For LKE enterprise only and may not currently available to all users.",
+					},
+					"nodes": schema.ListNestedAttribute{
+						Computed:    true,
+						Description: "The nodes in the node pool.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"id": schema.StringAttribute{
+									Computed:    true,
+									Description: "The ID of the node.",
+								},
+								"instance_id": schema.Int64Attribute{
+									Computed:    true,
+									Description: "The ID of the underlying Linode instance.",
+								},
+								"status": schema.StringAttribute{
+									Computed:    true,
+									Description: "The status of the node.",
+								},
+							},
+						},
+					},
+					"autoscaler": schema.ListNestedAttribute{
+						Computed: true,
+						Description: "The number of nodes autoscales within " +
+							"the defined minimum and maximum values.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"min": schema.Int64Attribute{
+									Description: "The minimum number of nodes to autoscale to. Defaults to the Node Pool’s count.",
+									Computed:    true,
+								},
+								"max": schema.Int64Attribute{
+									Description: "The maximum number of nodes to autoscale to. Defaults to the Node Pool’s count.",
+									Computed:    true,
+								},
+								"enabled": schema.BoolAttribute{
+									Description: "Whether autoscaling is enabled for this Node Pool. Defaults to false.",
+									Computed:    true,
+								},
+							},
+						},
+					},
+					"disks": schema.ListNestedAttribute{
+						Computed:    true,
+						Description: "This Node Pool’s custom disk layout.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"size": schema.Int64Attribute{
+									Description: "The size of this custom disk partition in MB.",
+									Computed:    true,
+								},
+								"type": schema.StringAttribute{
+									Description: "This custom disk partition’s filesystem type.",
+									Computed:    true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+}

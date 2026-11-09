@@ -1,0 +1,128 @@
+package databases
+
+import (
+	"context"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/linode/linodego/v2"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/databaseshared"
+	"github.com/linode/terraform-provider-linode/v4/linode/helper/frameworkfilter"
+)
+
+type ModelPrivateNetwork struct {
+	VPCID        types.Int64 `tfsdk:"vpc_id"`
+	SubnetID     types.Int64 `tfsdk:"subnet_id"`
+	PublicAccess types.Bool  `tfsdk:"public_access"`
+}
+
+// DatabaseModel represents a single Database object.
+type DatabaseModel struct {
+	ID                types.Int64       `tfsdk:"id"`
+	AllowList         []types.String    `tfsdk:"allow_list"`
+	ClusterSize       types.Int64       `tfsdk:"cluster_size"`
+	Created           types.String      `tfsdk:"created"`
+	Encrypted         types.Bool        `tfsdk:"encrypted"`
+	Engine            types.String      `tfsdk:"engine"`
+	HostPrimary       types.String      `tfsdk:"host_primary"`
+	HostSecondary     types.String      `tfsdk:"host_secondary"`
+	HostStandby       types.String      `tfsdk:"host_standby"`
+	InstanceURI       types.String      `tfsdk:"instance_uri"`
+	Label             types.String      `tfsdk:"label"`
+	Platform          types.String      `tfsdk:"platform"`
+	PrivateNetwork    types.Object      `tfsdk:"private_network"`
+	Region            types.String      `tfsdk:"region"`
+	Status            types.String      `tfsdk:"status"`
+	Type              types.String      `tfsdk:"type"`
+	Updated           types.String      `tfsdk:"updated"`
+	Version           types.String      `tfsdk:"version"`
+	OldestRestoreTime timetypes.RFC3339 `tfsdk:"oldest_restore_time"`
+
+	// Fork-specific fields
+	ForkSource      types.Int64       `tfsdk:"fork_source"`
+	ForkRestoreTime timetypes.RFC3339 `tfsdk:"fork_restore_time"`
+}
+
+// DatabaseFilterModel describes the Terraform resource data model to match the
+// resource schema.
+type DatabaseFilterModel struct {
+	ID        types.String                     `tfsdk:"id"`
+	Filters   frameworkfilter.FiltersModelType `tfsdk:"filter"`
+	Order     types.String                     `tfsdk:"order"`
+	OrderBy   types.String                     `tfsdk:"order_by"`
+	Databases []DatabaseModel                  `tfsdk:"databases"`
+}
+
+// parseDatabases parses the given list of regions into the `databases` model attribute.
+func (model *DatabaseFilterModel) parseDatabases(
+	ctx context.Context,
+	databases []linodego.Database,
+) (d diag.Diagnostics) {
+	parseDB := func(db linodego.Database) DatabaseModel {
+		var m DatabaseModel
+		m.ID = types.Int64Value(int64(db.ID))
+		m.AllowList = helper.StringSliceToFramework(db.AllowList)
+		m.ClusterSize = types.Int64Value(int64(db.ClusterSize))
+		m.Encrypted = types.BoolValue(db.Encrypted)
+		m.Engine = types.StringValue(db.Engine)
+		m.HostPrimary = types.StringValue(db.Hosts.Primary)
+		m.HostSecondary = types.StringValue(db.Hosts.Standby)
+		m.HostStandby = types.StringValue(db.Hosts.Standby)
+		m.InstanceURI = types.StringValue(db.InstanceURI)
+		m.Label = types.StringValue(db.Label)
+		m.Platform = types.StringValue(string(db.Platform))
+		m.Region = types.StringValue(db.Region)
+		m.Status = types.StringValue(string(db.Status))
+		m.Type = types.StringValue(db.Type)
+		m.Version = types.StringValue(db.Version)
+
+		if db.Fork != nil {
+			m.ForkSource = types.Int64Value(int64(db.Fork.Source))
+			m.ForkRestoreTime = timetypes.NewRFC3339TimePointerValue(db.Fork.RestoreTime)
+		} else {
+			m.ForkSource = types.Int64Null()
+			m.ForkRestoreTime = timetypes.NewRFC3339Null()
+		}
+
+		if db.OldestRestoreTime != nil {
+			m.OldestRestoreTime = timetypes.NewRFC3339TimePointerValue(db.OldestRestoreTime)
+		} else {
+			m.OldestRestoreTime = timetypes.NewRFC3339Null()
+		}
+
+		if db.Created != nil {
+			m.Created = types.StringValue(db.Created.Format(time.RFC3339))
+		} else {
+			m.Created = types.StringNull()
+		}
+
+		if db.Updated != nil {
+			m.Updated = types.StringValue(db.Updated.Format(time.RFC3339))
+		} else {
+			m.Updated = types.StringNull()
+		}
+
+		if db.PrivateNetwork != nil {
+			privateNetworkObject, rd := databaseshared.FlattenPrivateNetwork(ctx, *db.PrivateNetwork)
+			d.Append(rd...)
+			m.PrivateNetwork = privateNetworkObject
+		} else {
+			m.PrivateNetwork = types.ObjectNull(databaseshared.ObjectTypePrivateNetwork.AttrTypes)
+		}
+
+		return m
+	}
+
+	result := make([]DatabaseModel, len(databases))
+
+	for i, db := range databases {
+		result[i] = parseDB(db)
+	}
+
+	model.Databases = result
+
+	return d
+}
